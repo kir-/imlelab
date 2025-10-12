@@ -624,7 +624,7 @@
   <template>    
     <div id="top-panel">
       <div id="top-panel-container" class="panel-container">
-        <div id="page-title" class="top-panel-item"><strong>GAN</strong> Lab</div>
+        <div id="page-title" class="top-panel-item"><strong>IMLE</strong> Lab</div>
 
         <div id="distribution-selection" class="top-panel-item">
           <div class="top-column-title">Data Distribution</div>
@@ -701,16 +701,8 @@
 
           <div id="step-buttons" style="display: none">
             <button id="next-step-g-button" 
-              title="Train only generator for one epoch">
+              title="Train generator for one epoch">
               Generator
-            </button>
-            <button id="next-step-d-button" 
-              title="Train only discriminator for one epoch">
-              Discriminator
-            </button>
-            <button id="next-step-all-button" 
-              title="Train both discriminator and generator for one epoch">
-              Both
             </button>
           </div>
         </div>
@@ -749,21 +741,10 @@
                 id="arrow-g-forward-o" class="d-update-flow g-update-flow" />
               <path d="M336,166 L372,166"
                 id="arrow-t-d-forward-i" class="d-update-flow" />
-              <path d="M518,166 L554,166"
-                id="arrow-t-d-forward-o" class="d-update-flow" />
               <path d="M336,260 L372,260"
                 id="arrow-g-d-forward-i" class="d-update-flow g-update-flow" />
               <path d="M518,260 L554,260"
                 id="arrow-g-d-forward-o" class="d-update-flow g-update-flow" />
-
-              <path d="M605,166 C625,166 615,213 640,213"
-                id="arrow-t-prediction-d-loss" class="d-update-flow" />
-              <path d="M605,260 C625,260 615,213 640,213"
-                id="arrow-g-prediction-d-loss" class="d-update-flow" />
-              <path d="M640,213 L650,213 a10,10 0 0 0 10,-10
-                L660,40 a10,10 0 0 0 -10,-10
-                L445,30 a10,10 0 0 0 -10,10 L435,141"
-                id="arrow-d-loss-d" class="d-update-flow" />
 
               <path d="M605,260 L650,260 a10,10 0 0 1 10,10
                 L660,415 a10,10 0 0 1 -10,10 L336,425"
@@ -773,15 +754,6 @@
             </svg>
 
             <div id="model-vis-div">
-              <div id="component-d-loss" class="model-component"
-                style="top: 160px; left: 667px">
-                <div id="d-loss-bar" class="loss-bar" title=""></div>
-                <div class="component-loss-label">Discriminator<br />loss</div>
-                <div class="component-tooltip">
-                  <span id="d-loss-value" title="loss"></span>
-                </div>
-              </div>
-
               <div id="component-g-loss" class="model-component"
                 style="top: 275px; left: 667px">
                 <div id="g-loss-bar" class="loss-bar" title=""></div>
@@ -791,49 +763,6 @@
                 </div>
               </div>
 
-              <div id="component-options-loss" class="model-component"
-              style="top: 220px; left: 667px">
-                <div class="config-item">
-                  <paper-dropdown-menu no-animations no-label-float>
-                    <paper-listbox attr-for-selected="value"
-                      id="loss-type-dropdown" class="dropdown-content"
-                      selected="{{lossType}}">
-                      <template is="dom-repeat" items="[[lossTypeOptions]]">
-                        <paper-item value="[[item]]" label="[[item]]">
-                          [[item]]
-                        </paper-item>
-                      </template>
-                    </paper-listbox>
-                  </paper-dropdown-menu>
-                </div>
-              </div>
-
-              <div id="component-d-loop" class="model-component"
-                style="top: 4px; left: 530px">
-                <div class="config-item" style="width: 150px">
-                  <div class="up-down-buttons">
-                    <button class="mdl-button mdl-js-button mdl-button--icon"
-                      id="k-d-steps-add-button" 
-                      title="Increase a step per epoch">
-                      <i class="material-icons" id="button-k-d-steps-up">
-                        keyboard_arrow_up
-                      </i>
-                    </button>
-                    <br />
-                    <button class="mdl-button mdl-js-button mdl-button--icon"
-                      id="k-d-steps-remove-button" 
-                      title="Decrease a step per iter">
-                      <i class="material-icons" id="button-k-d-steps-down">
-                        keyboard_arrow_down
-                      </i>
-                    </button>
-                  </div>
-                  <div class="up-down-buttons">
-                    <label>
-                      <span id="k-d-steps">2</span> update(s) per epoch</label>
-                  </div>
-                </div>
-              </div>
 
               <div id="component-g-loop" class="model-component"
                 style="top: 422px; left: 530px">
@@ -858,49 +787,6 @@
                   <div class="up-down-buttons">
                     <label>
                       <span id="k-g-steps">1</span> update(s) per epoch</label>
-                  </div>
-                </div>
-              </div>
-
-              <div id="component-discriminator-learning" 
-                class="model-component"
-                style="top: 55px; left: 440px">
-                <div class="config-item" style="width: 120px">
-                  <div class="up-down-buttons">
-                    <label>Optimizer:</label>
-                  </div>
-                  <div class="up-down-buttons" style="width: 65px">
-                    <paper-dropdown-menu no-animations no-label-float>
-                      <paper-listbox attr-for-selected="value"
-                        id="d-optimizer-type-dropdown" class="dropdown-content"
-                        selected="{{dOptimizerType}}">
-                        <template is="dom-repeat" 
-                          items="[[optimizerTypeOptions]]">
-                          <paper-item value="[[item]]" label="[[item]]">
-                            [[item]]
-                          </paper-item>
-                        </template>
-                      </paper-listbox>
-                    </paper-dropdown-menu>
-                  </div>
-                </div>
-                <div class="config-item" style="width: 120px">
-                  <div class="up-down-buttons">
-                    <label>Learning rate:</label>
-                  </div>
-                  <div class="up-down-buttons" style="width: 48px">
-                    <paper-dropdown-menu no-animations no-label-float>
-                      <paper-listbox attr-for-selected="value"
-                        id="d-learning-rate-dropdown" class="dropdown-content"
-                        selected="{{dLearningRate}}">
-                        <template is="dom-repeat" 
-                          items="[[learningRateOptions]]">
-                          <paper-item value="[[item]]" label="[[item]]">
-                            [[item]]
-                          </paper-item>
-                        </template>
-                      </paper-listbox>
-                    </paper-dropdown-menu>
                   </div>
                 </div>
               </div>
@@ -946,25 +832,18 @@
                   </div>
                 </div>
               </div>
-
-              <div id="component-true-prediction" class="model-component"
-                style="top: 136px; left: 525px">
-                <div class="component-sub-label">Real</div>
-                <svg id="svg-true-prediction"></svg>
-              </div>
-
               <div id="component-generated-prediction" class="model-component"
                 style="top: 230px; left: 525px">
-                <div class="component-sub-label">Fake</div>
+                <div class="component-sub-label">Gen</div>
                 <svg id="svg-generated-prediction"></svg>
-                <div class="component-label">Prediction of<br />Samples</div>
+                <div class="component-label">NN Samples</div>
               </div>
 
               <div id="component-discriminator"
                 class="model-component model-component-model"
                 style="top: 136px; left: 372px">
                 <svg id="svg-discriminator-output"></svg>
-                <div class="component-label">Discriminator
+                <div class="component-label">Nearest Neigbour
                   <div id="overlap-toggle" class="checkbox-toggle">
                     <paper-checkbox type="checkbox" id="overlap-plots" checked
                       title="show/hide discriminator's classification">
@@ -976,47 +855,63 @@
               <div id="component-options-discriminator" 
                 class="model-component-options"
                 style="top: 307px; left: 365px">
-                <div class="config-item" style="width: 175px">
-                  <div class="up-down-buttons">
-                    <button class="mdl-button mdl-js-button mdl-button--icon"
-                      id="d-layers-add-button" title="Add a layer">
-                      <i class="material-icons" id="button-d-layers-up">
-                        keyboard_arrow_up
-                      </i>
-                    </button>
-                    <br />
-                    <button class="mdl-button mdl-js-button mdl-button--icon"
-                      id="d-layers-remove-button" title="Remove a layer">
-                      <i class="material-icons" id="button-d-layers-down">
-                        keyboard_arrow_down
-                      </i>
-                    </button>
+                  <div class="config-item" style="width: 160px">
+                    <div class="up-down-buttons">
+                      <label>Distance:</label>
+                    </div>
+                    <div class="up-down-buttons" style="width: 65px">
+                      <paper-dropdown-menu no-animations no-label-float>
+                        <paper-listbox attr-for-selected="value"
+                          id="distance-type-dropdown" class="dropdown-content"
+                          selected="{{distanceType}}">
+                          <template is="dom-repeat" 
+                            items="[[distanceTypeOptions]]">
+                            <paper-item value="[[item]]" label="[[item]]">
+                              [[item]]
+                            </paper-item>
+                          </template>
+                        </paper-listbox>
+                      </paper-dropdown-menu>
+                    </div>
                   </div>
-                  <div class="up-down-buttons">
-                    <label>
-                      <span id="num-d-layers">1</span> hidden layer(s)</label>
+                  <div class="config-item" style="width: 160px">
+                    <div class="up-down-buttons">
+                      <label>Sample Num:</label>
+                    </div>
+                    <div class="up-down-buttons" style="width: 65px">
+                      <paper-dropdown-menu no-animations no-label-float>
+                        <paper-listbox attr-for-selected="value"
+                          id="sample-factor-type-dropdown" class="dropdown-content"
+                          selected="{{sampleFactor}}">
+                          <template is="dom-repeat" 
+                            items="[[sampleFactorTypeOptions]]">
+                            <paper-item value="[[item]]" label="[[item]]">
+                              [[item]]
+                            </paper-item>
+                          </template>
+                        </paper-listbox>
+                      </paper-dropdown-menu>
+                    </div>
                   </div>
-                  <div class="up-down-buttons">
-                    <button class="mdl-button mdl-js-button mdl-button--icon"
-                      id="d-neurons-add-button" 
-                      title="Add a neuron for each layer">
-                      <i class="material-icons" id="button-d-neurons-up">
-                        keyboard_arrow_up
-                      </i>
-                    </button>
-                    <br />
-                    <button class="mdl-button mdl-js-button mdl-button--icon"
-                      id="d-neurons-remove-button" 
-                      title="Remove a neuron for each layer">
-                      <i class="material-icons" id="button-d-neurons-down">
-                        keyboard_arrow_down
-                      </i>
-                    </button>
+                  <div class="config-item" style="width: 160px">
+                    <div class="up-down-buttons">
+                      <label>Noise:</label>
+                    </div>
+                    <div class="up-down-buttons" style="width: 65px">
+                      <paper-dropdown-menu no-animations no-label-float>
+                        <paper-listbox attr-for-selected="value"
+                          id="noise-scale-type-dropdown" class="dropdown-content"
+                          selected="{{noiseCoefficient}}">
+                          <template is="dom-repeat" 
+                            items="[[noiseScaleTypeOptions]]">
+                            <paper-item value="[[item]]" label="[[item]]">
+                              [[item]]
+                            </paper-item>
+                          </template>
+                        </paper-listbox>
+                      </paper-dropdown-menu>
+                    </div>
                   </div>
-                  <div class="up-down-buttons">
-                    <label><span id="num-d-neurons">8</span> neuron(s)</label>
-                  </div>
-                </div>
               </div>
 
               <div id="component-generator"
@@ -1078,12 +973,6 @@
                 </div>
               </div>
 
-              <div id="component-discriminator-gradients" 
-                class="model-component"
-                style="top: 7px; left: 430px">
-                <div class="component-label">Gradients</div>
-              </div>
-
               <div id="component-generator-gradients" class="model-component"
                 style="top: 390px; left: 255px">
                 <svg id="svg-generator-gradients"></svg>
@@ -1113,7 +1002,7 @@
 
               <div id="component-generated-samples" class="model-component"
                 style="top: 230px; left: 255px">
-                <div class="component-sub-label">Fake
+                <div class="component-sub-label">Gen
                   <div id="g-samples-toggle" class="checkbox-toggle"
                     title="show/hide fake samples">
                     <paper-checkbox type="checkbox" id="show-g-samples" 
@@ -1150,60 +1039,45 @@
             </div>
 
             <div id="tooltips">
-              <div id="tooltip-d-generated-samples" 
-                class="tooltip tooltip-for-d"
-                style="top: 0; left: 0px">
-                <div class="tooltip-number">1</div>
-                Generator derives samples from noise
-              </div>
-              <div id="tooltip-d-prediction" class="tooltip tooltip-for-d"
-                style="top: 0; left: 150px">
-                <div class="tooltip-number">2</div>
-                Discriminator classifies samples
-              </div>
-              <div id="tooltip-d-loss" class="tooltip tooltip-for-d"
-                style="top: 0; left: 300px">
-                <div class="tooltip-number">3</div>
-                Computes discriminator loss
-              </div>
-              <div id="tooltip-d-gradients" class="tooltip tooltip-for-d"
-                style="top: 0; left: 450px">
-                <div class="tooltip-number">4</div>
-                Computes discriminator gradients
-              </div>
-              <div id="tooltip-update-discriminator" 
-                class="tooltip tooltip-for-d"
-                style="top: 0; left: 600px">
-                <div class="tooltip-number">5</div>
-                Updates discriminator based on gradients
-              </div>
-              <div id="tooltip-g-generated-samples" 
+
+            <div id="tooltip-generated-samples"
                 class="tooltip tooltip-for-g"
-                style="top: 500px; left: 0px">
-                <div class="tooltip-number">1</div>
-                Generator derives samples from noise
-              </div>
-              <div id="tooltip-g-prediction" class="tooltip tooltip-for-g"
-                style="top: 500px; left: 150px">
-                <div class="tooltip-number">2</div>
-                Discriminator classifies fake samples only
-              </div>
-              <div id="tooltip-g-loss" class="tooltip tooltip-for-g"
-                style="top: 500px; left: 300px">
-                <div class="tooltip-number">3</div>
-                Computes generator loss
-              </div>
-              <div id="tooltip-g-gradients" class="tooltip tooltip-for-g"
-                style="top: 500px; left: 450px">
-                <div class="tooltip-number">4</div>
-                Computes generator gradients
-              </div>
-              <div id="tooltip-update-generator" class="tooltip tooltip-for-g"
-                style="top: 500px; left: 600px">
-                <div class="tooltip-number">5</div>
-                Updates generator based on gradients
-              </div>
+                style="top:0; left:0px">
+              <div class="tooltip-number">1</div>
+              Generator maps noise → samples
             </div>
+
+            <div id="tooltip-imle-matching"
+                class="tooltip tooltip-for-g"
+                style="top:0; left:150px">
+              <div class="tooltip-number">2</div>
+              Find nearest generated for each real sample
+            </div>
+
+            <div id="tooltip-imle-loss"
+                class="tooltip tooltip-for-g"
+                style="top:0; left:300px">
+              <div class="tooltip-number">3</div>
+              Compute L2 loss (real ↔ generated)
+            </div>
+
+            <!-- Bottom row -->
+            <div id="tooltip-g-gradients"
+                class="tooltip tooltip-for-g"
+                style="top:0px; left:450px">
+              <div class="tooltip-number">4</div>
+              Compute generator gradients
+            </div>
+
+            <div id="tooltip-update-generator"
+                class="tooltip tooltip-for-g"
+                style="top:0px; left:600px">
+              <div class="tooltip-number">5</div>
+              Update generator weights
+            </div>
+          </div>
+
+
           </div>
         </div>
 
@@ -1244,22 +1118,16 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                 <span id="toggle-right-fake-samples"
                   class="toggle-right checked"
                   title="click to toggle this layer"
-                  style="color: var(--generator-color);">fake samples</span>.
+                  style="color: var(--generator-color);">generated samples</span>.
               </div>
               <div class="layers-descriptions-section">
-                Background colors of grid cells represent
+                The lines represent the nearest generated data point for each real sample from
                 <span id="toggle-right-discriminator"
                   class="toggle-right checked"
                   title="click to toggle this layer"
                   style="color: rgb(64, 128, 247);">
-                    discriminator</span>'s classifications.
+                    nearest neighbour</span>'s classifications.
                 <br />
-                Samples in
-                <span style="color: var(--real-data-color);">green regions</span>
-                are likely to be real;
-                those in
-                <span style="color: var(--generator-color);">purple regions</span>
-                likely fake.
               </div>
               <div class="layers-descriptions-section">
                 <strong>Manifold</strong> represents
@@ -1273,7 +1141,7 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                 darker purple means more samples in smaller area.
               </div>
               <div class="layers-descriptions-section"> 
-                Pink lines from fake samples represent
+                Pink lines from generated samples represent
                 <span id="toggle-right-gradients"
                   class="toggle-right checked"
                   title="click to toggle this layer"

@@ -22,7 +22,7 @@ const shell = require('shelljs');
 
 const demoPath = 'demo';
 const outputPath = path.join(demoPath, 'bundle.js')
-const tsPath = path.join(demoPath, 'ganlab.ts');
+const tsPath = path.join(demoPath, 'imlelab.ts');
 
 const cmd = path.join('node_modules', '.bin', 'watchify');
 
