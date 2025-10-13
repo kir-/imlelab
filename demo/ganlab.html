@@ -846,7 +846,7 @@
                 <div class="component-label">Nearest Neigbour
                   <div id="overlap-toggle" class="checkbox-toggle">
                     <paper-checkbox type="checkbox" id="overlap-plots" checked
-                      title="show/hide discriminator's classification">
+                      title="show/hide nearest neighbour match">
                     </paper-checkbox>
                   </div>
                 </div>
@@ -1023,7 +1023,7 @@
                 style="top: 230px; left: 255px">
                 <div class="component-sub-label">Gen
                   <div id="g-samples-toggle" class="checkbox-toggle"
-                    title="show/hide fake samples">
+                    title="show/hide generated samples">
                     <paper-checkbox type="checkbox" id="show-g-samples" 
                       checked>
                     </paper-checkbox>
@@ -1140,12 +1140,12 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                   style="color: var(--generator-color);">generated samples</span>.
               </div>
               <div class="layers-descriptions-section">
-                The lines represent the nearest generated data point for each real sample from
+                The lines represent the nearest generated sample for each real sample, based on the 
                 <span id="toggle-right-discriminator"
                   class="toggle-right checked"
                   title="click to toggle this layer"
                   style="color: rgb(64, 128, 247);">
-                    nearest neighbour</span>'s classifications.
+                    nearest neighbour</span> distance.
                 <br />
               </div>
               <div class="layers-descriptions-section">

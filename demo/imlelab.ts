@@ -981,8 +981,8 @@ class GANLab extends GANLabPolymer {
 
         gradDotsElementList.forEach((dotsElement, k) => {
           const plotSizePx = k === 0 ? this.plotSizePx : this.smallPlotSizePx;
-          const arrowWidth = k === 0 ? 0.009 : 0.03;
-          const lenScale   = k === 0 ? 1.6 : 3.0;  // make arrows longer in small panel
+          const arrowWidth = k === 0 ? 0.004 : 0.03;
+          const lenScale   = k === 0 ? 5 : 3.0;  // make arrows longer in small panel
 
           d3Transition.transition()
             .select(dotsElement)
