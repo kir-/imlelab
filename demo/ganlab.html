@@ -857,7 +857,7 @@
                 style="top: 307px; left: 365px">
                   <div class="config-item" style="width: 160px">
                     <div class="up-down-buttons">
-                      <label>Distance:</label>
+                      <label>Distance Function:</label>
                     </div>
                     <div class="up-down-buttons" style="width: 65px">
                       <paper-dropdown-menu no-animations no-label-float>
@@ -876,7 +876,7 @@
                   </div>
                   <div class="config-item" style="width: 160px">
                     <div class="up-down-buttons">
-                      <label>Sample Num:</label>
+                      <label>Sample Factor:</label>
                     </div>
                     <div class="up-down-buttons" style="width: 65px">
                       <paper-dropdown-menu no-animations no-label-float>
@@ -895,7 +895,7 @@
                   </div>
                   <div class="config-item" style="width: 160px">
                     <div class="up-down-buttons">
-                      <label>Noise:</label>
+                      <label>Latent Noise:</label>
                     </div>
                     <div class="up-down-buttons" style="width: 65px">
                       <paper-dropdown-menu no-animations no-label-float>
@@ -904,6 +904,25 @@
                           selected="{{noiseCoefficient}}">
                           <template is="dom-repeat" 
                             items="[[noiseScaleTypeOptions]]">
+                            <paper-item value="[[item]]" label="[[item]]">
+                              [[item]]
+                            </paper-item>
+                          </template>
+                        </paper-listbox>
+                      </paper-dropdown-menu>
+                    </div>
+                  </div>
+                  <div class="config-item" style="width: 160px">
+                    <div class="up-down-buttons">
+                      <label>RS Epsilon:</label>
+                    </div>
+                    <div class="up-down-buttons" style="width: 65px">
+                      <paper-dropdown-menu no-animations no-label-float>
+                        <paper-listbox attr-for-selected="value"
+                          id="epsilon-type-dropdown" class="dropdown-content"
+                          selected="{{epsilon}}">
+                          <template is="dom-repeat" 
+                            items="[[epsilonTypeOptions]]">
                             <paper-item value="[[item]]" label="[[item]]">
                               [[item]]
                             </paper-item>
