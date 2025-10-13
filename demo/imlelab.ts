@@ -51,7 +51,9 @@ const GANLabPolymer: new () => PolymerHTMLElement = PolymerElement({
     selectedShapeName: String,
     shapeNames: Array,
     selectedNoiseType: String,
-    noiseTypes: Array
+    noiseTypes: Array,
+    epsilonType: Number,
+    epsilonTypeOptions: Array,
   }
 });
 
@@ -77,6 +79,7 @@ class GANLab extends GANLabPolymer {
   private kGSteps: number;
   private sampleFactor: number;
   private noiseCoefficient: number;
+  private epsilon: number;
 
   private plotSizePx: number;
   private mediumPlotSizePx: number;
@@ -202,17 +205,17 @@ class GANLab extends GANLabPolymer {
       });
 
     // Distance
-    this.distanceTypeOptions = ['L2', 'L1'];
+    this.distanceTypeOptions = ['L1', 'L2', 'Barrier'];
     this.distanceType = 'L2';
     this.querySelector('#distance-type-dropdown')!.addEventListener(
       // tslint:disable-next-line:no-any
       'iron-activate', (event: any) => {
         this.distanceType = event.detail.selected;
-        this.model.distanceType = (this.distanceType === 'L1' ? 'L1' : 'L2');
+        this.model.distanceType = this.distanceType;
       });
 
     // noiseScale
-    this.noiseScaleTypeOptions = [0.001, 0.01, 0.01];
+    this.noiseScaleTypeOptions = [0.001, 0.01, 0.1];
     this.noiseCoefficient = 0.001;
     this.querySelector('#noise-scale-type-dropdown')!.addEventListener(
       // tslint:disable-next-line:no-any
@@ -221,12 +224,20 @@ class GANLab extends GANLabPolymer {
       });
 
     // sample factor
-    this.sampleFactorTypeOptions = [1, 2, 4, 8, 16];
+    this.sampleFactorTypeOptions = [1, 2, 4, 8, 16, 32];
     this.sampleFactor = 1;
     this.querySelector('#sample-factor-type-dropdown')!.addEventListener(
       // tslint:disable-next-line:no-any
       'iron-activate', (event: any) => {
         this.sampleFactor = event.detail.selected;
+      });
+
+    this.epsilonTypeOptions = [0, 0.0001, 0.0005, 0.001, 0.005, 0.01];
+    this.epsilon = 0;
+    this.querySelector('#epsilon-type-dropdown')!.addEventListener(
+      // tslint:disable-next-line:no-any
+      'iron-activate', (event: any) => {
+        this.epsilon= event.detail.selected;
       });
 
     this.learningRateOptions = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0];
@@ -238,7 +249,7 @@ class GANLab extends GANLabPolymer {
         this.model.updateOptimizer(this.gOptimizerType, this.gLearningRate);
       });
 
-    this.optimizerTypeOptions = ['SGD', 'Adam'];
+    this.optimizerTypeOptions = ['SGD', 'Adam', 'Adagrad', 'RMSProp'];
     this.gOptimizerType = 'SGD';
     this.querySelector('#g-optimizer-type-dropdown')!.addEventListener(
       // tslint:disable-next-line:no-any
@@ -485,8 +496,7 @@ class GANLab extends GANLabPolymer {
 
     // Model
     this.model = new imlelab_models.IMLELabModel(
-      this.noiseSize, this.numGeneratorLayers, this.numGeneratorNeurons,
-      BATCH_SIZE, this.sampleFactor, this.noiseCoefficient, this.distanceType);
+      this.noiseSize, this.numGeneratorLayers, this.numGeneratorNeurons, this.noiseCoefficient, this.distanceType, this.epsilon);
     this.model.initializeModelVariables();
     this.model.updateOptimizer(this.gOptimizerType, this.gLearningRate);
   }
@@ -783,7 +793,7 @@ class GANLab extends GANLabPolymer {
 
     if (this.slowMode) {
       await this.highlightIMLEStep(
-        ['component-true-samples', 'component-generated-samples'],
+        ['component-true-samples', 'component-generated-samples', 'component-discriminator'],
         'tooltip-imle-matching');
     }
 
@@ -971,8 +981,8 @@ class GANLab extends GANLabPolymer {
 
         gradDotsElementList.forEach((dotsElement, k) => {
           const plotSizePx = k === 0 ? this.plotSizePx : this.smallPlotSizePx;
-          const arrowWidth = k === 0 ? 0.002 : 0.03;
-          const lenScale   = k === 0 ? 1.0 : 3.0;  // make arrows longer in small panel
+          const arrowWidth = k === 0 ? 0.009 : 0.03;
+          const lenScale   = k === 0 ? 1.6 : 3.0;  // make arrows longer in small panel
 
           d3Transition.transition()
             .select(dotsElement)
@@ -985,22 +995,17 @@ class GANLab extends GANLabPolymer {
     }
 
     if (this.slowMode) {
+      await this.highlightIMLEStep(['component-g-loss', 'component-generated-prediction'], 'tooltip-imle-loss');
       document.getElementById('component-g-loss')!.classList.add('activated');
       for (let i = 0; i < this.gFlowElements.length; ++i) {
         this.gFlowElements[i].classList.add('g-activated');
       }
-
-     
-    }
-
-    if (this.slowMode) {
-      await this.highlightIMLEStep(['component-g-loss'], 'tooltip-imle-loss');
     }
 
     // --------------------------------------------
     // Train generator with IMLE (matched-noise)
     // --------------------------------------------
-    const kGSteps = 1;
+    const kGSteps = this.kGSteps;
     let gCostVal: number | null = null;
 
     tf.tidy(() => {
@@ -1027,8 +1032,8 @@ class GANLab extends GANLabPolymer {
         document.getElementById('g-loss-value')!.innerText = gCostVal.toFixed(3);
         document.getElementById('g-loss-bar')!.title = gCostVal.toFixed(3);
         const scaled = Math.log10(gCostVal + 1e-6);
-        const normalized = Math.min(Math.max((scaled + 3) / 3, 0), 1);  
-        const barWidth = normalized * 90;
+        const normalized = Math.min(Math.max((scaled + 4) / 4, 0), 1);
+        const barWidth = 1 + normalized * (100 - 5);
         document.getElementById('g-loss-bar')!.style.width = `${barWidth}px`;
       }
 
@@ -1391,10 +1396,8 @@ private dehighlightStep(): void {
         numDiscriminatorNeurons: this.numDiscriminatorNeurons,
         dLearningRate: this.dLearningRate,
         gLearningRate: this.gLearningRate,
-        dOptimizerType: this.dOptimizerType,
         gOptimizerType: this.gOptimizerType,
         distanceType: this.distanceType,
-        kDSteps: this.kDSteps,
         kGSteps: this.kGSteps,
       }
     };
