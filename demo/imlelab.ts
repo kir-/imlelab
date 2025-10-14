@@ -40,10 +40,8 @@ interface ManifoldCell {
 const GANLabPolymer: new () => PolymerHTMLElement = PolymerElement({
   is: 'gan-lab',
   properties: {
-    dLearningRate: Number, // kept for UI compat; not used in IMLE
     gLearningRate: Number,
     learningRateOptions: Array,
-    dOptimizerType: String, // kept for UI compat; not used in IMLE
     gOptimizerType: String,
     optimizerTypeOptions: Array,
     lossType: String,
@@ -61,12 +59,8 @@ class GANLab extends GANLabPolymer {
   private iterationCount: number;
 
   private noiseProvider!: ganlab_input_providers.InputProvider;
-  private noiseProviderFixed!: ganlab_input_providers.InputProvider;
   private trueSampleProvider!: ganlab_input_providers.InputProvider;
-  private trueSampleProviderFixed!: ganlab_input_providers.InputProvider;
   private uniformNoiseProvider!: ganlab_input_providers.InputProvider;
-  private uniformInputProvider!: ganlab_input_providers.InputProvider;
-
   private usePretrained: boolean;
 
   private model!: imlelab_models.IMLELabModel;
@@ -75,7 +69,6 @@ class GANLab extends GANLabPolymer {
   private numDiscriminatorLayers: number;   // kept for UI compat
   private numGeneratorNeurons: number;
   private numDiscriminatorNeurons: number;  // kept for UI compat
-  private kDSteps: number;                  // kept for UI compat (unused)
   private kGSteps: number;
   private sampleFactor: number;
   private noiseCoefficient: number;
@@ -100,8 +93,6 @@ class GANLab extends GANLabPolymer {
   private isPlaying: boolean;
   private isPausedOngoingIteration: boolean;
   private iterCountElement!: HTMLElement;
-
-  private dFlowElements!: NodeListOf<SVGPathElement>; // UI lines
   private gFlowElements!: NodeListOf<SVGPathElement>;
   private finishDrawingButton!: HTMLInputElement;
 
@@ -123,7 +114,8 @@ class GANLab extends GANLabPolymer {
       '#vis-generated-samples',
       '#vis-manifold',
       '#vis-generator-gradients',
-      '#vis-true-samples',
+      '#vis-true-samples-batch',
+      '#vis-true-samples-atlas',
       '#vis-discriminator-output',
     ]);
     const medium = new Set(['#svg-generator-manifold', '#svg-discriminator-output']);
@@ -132,10 +124,10 @@ class GANLab extends GANLabPolymer {
     return this.smallPlotSizePx;
   }
 
-  private getLatentPoolFromFixedProvider(factor: number): tf.Tensor2D {
+  private getLatentPoolFromProvider(factor: number): tf.Tensor2D {
     const batches: tf.Tensor2D[] = [];
     for (let i = 0; i < factor; ++i) {
-      batches.push(this.noiseProviderFixed.getNextCopy() as tf.Tensor2D);
+      batches.push(this.noiseProvider.getNextCopy() as tf.Tensor2D);
     }
     return tf.concat(batches, 0) as tf.Tensor2D;
   }
@@ -295,8 +287,13 @@ class GANLab extends GANLabPolymer {
       },
       {
         graph: '#show-t-samples',
+        description: '#toggle-right-real-distribution-samples',
+        layer: '#vis-true-samples-atlas'
+      },
+      {
+        graph: '#show-t-samples',
         description: '#toggle-right-real-samples',
-        layer: '#vis-true-samples'
+        layer: '#vis-true-samples-batch'
       },
       {
         graph: '#show-g-samples',
@@ -385,8 +382,6 @@ class GANLab extends GANLabPolymer {
     // Reserve big plot for generated samples
     this.gDotsElementList = ['#vis-generated-samples'];
 
-    this.dFlowElements =
-      this.querySelectorAll('.d-update-flow') as NodeListOf<SVGPathElement>;
     this.gFlowElements =
       this.querySelectorAll('.g-update-flow') as NodeListOf<SVGPathElement>;
 
@@ -422,7 +417,7 @@ class GANLab extends GANLabPolymer {
     this.recreateCharts();
 
     const dataElements = [
-      d3.select('#vis-true-samples').selectAll('.true-dot'),
+      d3.select('#vis-true-samples-atlas').selectAll('.true-dot'),
       d3.select('#svg-true-samples').selectAll('.true-dot'),
       d3.select('#svg-true-prediction').selectAll('.true-dot'),
       d3.select('#svg-noise').selectAll('.noise-dot'),
@@ -441,10 +436,35 @@ class GANLab extends GANLabPolymer {
       d3.select('#svg-generator-gradients').selectAll('.gradient-generated'),
       d3.select('#svg-discriminator-output').selectAll('.matching-line'),
       d3.select('#vis-discriminator-output').selectAll('.matching-line'),
+      // new batch overlays:
+      d3.select('#vis-true-samples-batch').selectAll('.true-dot.batch'),
+      d3.select('#vis-generated-samples').selectAll('.generated-dot.batch'),
+      d3.select('#vis-generated-samples').selectAll('.matching-line'),
     ];
     dataElements.forEach((element) => {
       element.data([]).exit().remove();
     });
+
+
+    function ensureLayer(sel: string, layerCls: string) {
+      const root = d3.select(sel) as any;
+      if (root.select(`g.${layerCls}`).empty()) {
+        root.append('g').attr('class', `${layerCls} gan-lab`);
+      }
+    }
+
+    function ensureLayers(sel: string, atlasCls: string, batchCls: string) {
+      const root = d3.select(sel) as any;
+      if (root.select(`g.${atlasCls}`).empty())
+        root.append('g').attr('class', `${atlasCls} gan-lab`);
+      if (root.select(`g.${batchCls}`).empty())
+        root.append('g').attr('class', `${batchCls} gan-lab`);
+    }
+
+    ensureLayer('#vis-true-samples-atlas', 'true-atlas');
+    ensureLayer('#vis-true-samples-batch', 'true-batch');
+    ensureLayers('#vis-generated-samples', 'gen-atlas', 'gen-batch');
+
 
     // Input providers
     const noiseProviderBuilder =
@@ -461,9 +481,7 @@ class GANLab extends GANLabPolymer {
         ATLAS_SIZE, this.selectedShapeName,
         drawingPositions, BATCH_SIZE);
     trueSampleProviderBuilder.generateAtlas();
-    this.trueSampleProvider = trueSampleProviderBuilder.getInputProvider();
-    this.trueSampleProviderFixed =
-      trueSampleProviderBuilder.getInputProvider(true);
+    this.trueSampleProvider = trueSampleProviderBuilder.getInputProvider(true);
 
     if (this.noiseSize <= 2) {
       const uniformNoiseProviderBuilder =
@@ -542,29 +560,64 @@ class GANLab extends GANLabPolymer {
       const filename = `pretrained_${this.selectedShapeName}`;
       this.loadPretrainedWeightFile(filename).then((_loadedModel) => {
         this.createExperiment();
+        this.renderRealBatchPrime();
       });
     }
   }
 
-  private visualizeTrueDistribution(inputAtlasList: number[]) {
-    const color = scaleSequential(interpolateGreens).domain([0, 0.05]);
+  private renderRealBatchPrime(): void {
+    // Pull one fresh real mini-batch
+    const realBatch = this.trueSampleProvider.getNextCopy() as tf.Tensor2D;
+    const arr = realBatch.dataSync() as Float32Array;
+    realBatch.dispose();
 
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i < arr.length; i += 2) pts.push([arr[i], arr[i + 1]]);
+
+    const sel = '#vis-true-samples-batch';
+    // Same scale as big plot
+    const size = this.sizeFor('#vis-generated-samples');
+    const g = d3.select(sel).select('g.true-batch') as any;
+
+    const join = g
+      .selectAll('circle.true-dot.batch')
+      .data(pts, (_d, i) => i as any); // key by index for clean refresh
+
+    join.exit().remove();
+
+    join.enter()
+      .append('circle')
+      .attr('class', 'true-dot batch gan-lab')
+      .attr('r', 2)
+      .merge(join as any)
+      .attr('cx', d => this.xPx(d[0], size))
+      .attr('cy', d => this.yPx(d[1], size));
+  }
+
+
+  private visualizeTrueDistribution(inputAtlasList: number[]) {
     const trueDistribution: Array<[number, number]> = [];
     while (trueDistribution.length < NUM_TRUE_SAMPLES_VISUALIZED) {
       const values = inputAtlasList.splice(0, 2);
       trueDistribution.push([values[0], values[1]]);
     }
 
-    const trueDotsElementList = ['#vis-true-samples', '#svg-true-samples'];
+    const trueDotsElementList = ['#vis-true-samples-atlas', '#svg-true-samples'];
     trueDotsElementList.forEach((sel) => {
       const size = this.sizeFor(sel);
       const radius = (size === this.plotSizePx) ? 2 : 1;
-      d3.select(sel)
-        .selectAll('.true-dot')
+
+      // Big plot: put atlas dots in atlas layer; small panel: draw directly
+      const target = sel === '#vis-true-samples-atlas'
+        ? (d3.select(sel).select('g.true-atlas') as any)
+        : (d3.select(sel) as any);
+
+      target
+        .selectAll('.true-dot.atlas')
         .data(trueDistribution)
         .enter()
         .append('circle')
-        .attr('class', 'true-dot gan-lab')
+        .attr('class', 'true-dot atlas gan-lab')
         .attr('r', radius)
         .attr('cx', (d: number[]) => this.xPx(d[0], size))
         .attr('cy', (d: number[]) => this.yPx(d[1], size))
@@ -725,6 +778,13 @@ class GANLab extends GANLabPolymer {
 
     this.iterationCount++;
 
+    const realBatch = tf.keep(this.trueSampleProvider.getNextCopy() as tf.Tensor2D);
+    const latentPool = tf.keep(this.getLatentPoolFromProvider(this.sampleFactor));
+    const genPool    = tf.keep(this.model.generator(latentPool) as tf.Tensor2D);
+
+    // nearest neighbor indices real → generated (int32)
+    const nnIdx = tf.keep(this.model.nearest_neighbour(realBatch, genPool).toInt() as tf.Tensor1D);
+
     if (!keepIterating || this.iterationCount === 1 || this.slowMode ||
         this.iterationCount % EPOCH_INTERVAL === 0) {
       this.iterCountElement.innerText = this.zeroPad(this.iterationCount);
@@ -752,23 +812,24 @@ class GANLab extends GANLabPolymer {
     tf.tidy(() => {
       if (!keepIterating || this.iterationCount === 1 || this.slowMode ||
           this.iterationCount % VIS_INTERVAL === 0) {
+
+        // Reuse the SAME generated points for this iteration
+        const gArr = genPool.dataSync() as Float32Array;
         const gDataBefore: Array<[number, number]> = [];
-        const noiseFixedBatch = this.noiseProviderFixed.getNextCopy() as tf.Tensor2D;
-        const gResult = this.model.generator(noiseFixedBatch);
-        const gResultData = gResult.dataSync() as Float32Array;
-        for (let j = 0; j < gResultData.length / 2; ++j) {
-          gDataBefore.push([gResultData[j * 2], gResultData[j * 2 + 1]]);
+        for (let i = 0; i < gArr.length; i += 2) {
+          gDataBefore.push([gArr[i], gArr[i + 1]]);
         }
 
         if (this.iterationCount === 1) {
           this.gDotsElementList.forEach((sel) => {
             const size = this.sizeFor(sel);
             const radius = (size === this.plotSizePx) ? 2 : 1;
-            d3.select(sel).selectAll('.generated-dot')
+            d3.select(sel).select('g.gen-batch') // batch layer
+              .selectAll('.generated-dot')
               .data(gDataBefore)
               .enter()
               .append('circle')
-              .attr('class', 'generated-dot gan-lab')
+              .attr('class', 'generated-dot batch gan-lab')
               .attr('r', radius)
               .attr('cx', (d: number[]) => this.xPx(d[0], size))
               .attr('cy', (d: number[]) => this.yPx(d[1], size))
@@ -779,10 +840,25 @@ class GANLab extends GANLabPolymer {
         } else {
           this.gDotsElementList.forEach((sel) => {
             const size = this.sizeFor(sel);
+            const batchLayer = d3.select(sel).select('g.gen-batch');
+            
+            const batchDots = batchLayer
+              .selectAll('.generated-dot')
+              .data(gDataBefore);
+
+            batchDots.exit().remove();
+
+            batchDots.enter()
+              .append('circle')
+              .attr('class', 'generated-dot batch gan-lab')
+              .attr('r', (size === this.plotSizePx) ? 2 : 1);
+
+            // Use d3Transition.transition() for the animation
             d3Transition.transition()
               .select(sel)
-              .selectAll('.generated-dot')
-              .selection().data(gDataBefore)
+              .selectAll('g.gen-batch .generated-dot')
+              .selection()
+              .data(gDataBefore)
               .transition().duration(SLOW_INTERVAL_MS / 600)
               .attr('cx', (d: number[]) => this.xPx(d[0], size))
               .attr('cy', (d: number[]) => this.yPx(d[1], size));
@@ -798,38 +874,24 @@ class GANLab extends GANLabPolymer {
     }
 
     // ---------------------------
-    // NN rendering (real ↔ gen)
+    // NN rendering (real ↔ gen) and real-batch rendering on big plot
     // ---------------------------
-    if (!keepIterating || this.iterationCount === 1 || this.slowMode ||
-        this.iterationCount % VIS_INTERVAL === 0) {
+    if (!keepIterating || this.iterationCount === 1 || this.slowMode || this.iterationCount % VIS_INTERVAL === 0) {
       tf.tidy(() => {
-        // 1) Real batch used for matching (fixed provider so it's stable within frame)
-        const trueSampleBatch =
-          this.trueSampleProviderFixed.getNextCopy() as tf.Tensor2D; // [B,2]
-        const realArr = trueSampleBatch.dataSync() as Float32Array;
+        const realArr = realBatch.dataSync() as Float32Array;
         const realPoints: Array<[number, number]> = [];
         for (let i = 0; i < realArr.length; i += 2) {
           realPoints.push([realArr[i], realArr[i + 1]]);
         }
 
-        // 2) Candidate pool -> generated points
-        const latents = this.getLatentPoolFromFixedProvider(this.sampleFactor);
-        const generatedData = this.model.generator(latents) as tf.Tensor2D;
-        const genArr = generatedData.dataSync() as Float32Array;
-
+        const genArr = genPool.dataSync() as Float32Array;
         const candidatePoints: Array<[number, number]> = [];
         for (let i = 0; i < genArr.length; i += 2) {
           candidatePoints.push([genArr[i], genArr[i + 1]]);
         }
 
-        // 3) Nearest neighbours: real -> generated  (force int32 dtype)
-        const nearestIndices = this.model.nearest_neighbour(
-          trueSampleBatch, generatedData
-        ).toInt() as tf.Tensor1D;
+        const idxArr = nnIdx.dataSync() as Int32Array;
 
-        const idxArr = nearestIndices.dataSync() as Int32Array;
-
-        // 4) Build pairs (for line/gradient drawing)
         type NNPair = { real: [number, number]; gen: [number, number] };
         const pairs: NNPair[] = [];
         const gradData: [number, number, number, number][] = [];
@@ -837,50 +899,66 @@ class GANLab extends GANLabPolymer {
         for (let i = 0; i < idxArr.length; i++) {
           const ri = i * 2;
           const gi = idxArr[i] * 2;
-          const real = [realArr[ri], realArr[ri + 1]] as [number, number];
-          const gen  = [genArr[gi],  genArr[gi + 1]] as [number, number];
+          const real: [number, number] = [realArr[ri], realArr[ri + 1]];
+          const gen:  [number, number] = [genArr[gi],  genArr[gi + 1]];
           pairs.push({ real, gen });
-          // IMLE "gradient arrow": from gen → real
           gradData.push([gen[0], gen[1], real[0] - gen[0], real[1] - gen[1]]);
         }
 
-        // -------- Render NN lines IN the NN panel --------
-        const nnSel = '#svg-discriminator-output';
-        const sizeNN = this.sizeFor(nnSel);
-        const nnSvg = d3.select(nnSel);
-        const LINE_COLOR = '#4b82cfff';
+        // Big panel: draw the current REAL mini-batch on top of the atlas
+        {
+          const bigSel = '#vis-true-samples-batch';
+          const bigSize = this.sizeFor('#vis-generated-samples'); // same scale as big plot
+          const batchLayer = (d3.select(bigSel).select('g.true-batch') as any);
 
-        const lSel = nnSvg
-          .selectAll<SVGLineElement, NNPair>('.matching-line')
-          .data(pairs);
+          const dots = batchLayer
+            .selectAll('circle')
+            .data(realPoints);
 
-        lSel.exit().remove();
+          dots.exit().remove();
+          dots
+            .enter()
+            .append('circle')
+            .attr('class', 'true-dot batch gan-lab')
+            .attr('r', 2)
+            .merge(dots as any)
+            .attr('cx', d => this.xPx(d[0], bigSize))
+            .attr('cy', d => this.yPx(d[1], bigSize));
+        }
 
-        const lEnter = lSel.enter()
-          .append('line')
-          .attr('class', 'matching-line gan-lab')
-          .attr('stroke-width', 1.5)
-          .attr('opacity', 0.4)
-          .attr('stroke', LINE_COLOR);
+        // ---- render lines in the small NN panel
+        {
+          const nnSel = '#svg-discriminator-output';
+          const sizeNN = this.sizeFor(nnSel);
+          const nnSvg = d3.select(nnSel) as any;
 
-        (lSel as any).merge(lEnter)
-          .attr('x1', d => this.xPx(d.real[0], sizeNN))
-          .attr('y1', d => this.yPx(d.real[1], sizeNN))
-          .attr('x2', d => this.xPx(d.gen[0],  sizeNN))
-          .attr('y2', d => this.yPx(d.gen[1],  sizeNN));
+          const lSel = nnSvg.selectAll('.matching-line').data(pairs);
+          lSel.exit().remove();
+          const lEnter = lSel.enter()
+            .append('line')
+            .attr('class', 'matching-line gan-lab')
+            .attr('stroke-width', 1.5).attr('opacity', 0.4).attr('stroke', '#4b82cfff');
 
-        // Also draw the same NN lines on the layered distribution (big) layer.
+          (lSel as any).merge(lEnter)
+            .attr('x1', (d: NNPair) => this.xPx(d.real[0], sizeNN))
+            .attr('y1', (d: NNPair) => this.yPx(d.real[1], sizeNN))
+            .attr('x2', (d: NNPair) => this.xPx(d.gen[0],  sizeNN))
+            .attr('y2', (d: NNPair) => this.yPx(d.gen[1],  sizeNN));
+        }
+
+        // ---- and also on the big layered plot (overlay inside big plot)
         {
           const bigSel = '#vis-discriminator-output';
           const bigSize = this.sizeFor(bigSel);
-          const bigG = d3.select(bigSel);
+          const bigG = d3.select(bigSel) as any;
 
-          const bigLines = bigG
-            .selectAll<SVGLineElement, NNPair>('.matching-line')
-            .data(pairs);
+          let overlay = bigG.select('g.matching-overlay') as any;
+          if (overlay.empty()) {
+            overlay = bigG.append('g').attr('class', 'matching-overlay gan-lab') as any;
+          }
 
+          const bigLines = overlay.selectAll('line.matching-line').data(pairs);
           bigLines.exit().remove();
-
           const bigEnter = bigLines.enter()
             .append('line')
             .attr('class', 'matching-line gan-lab')
@@ -890,15 +968,13 @@ class GANLab extends GANLabPolymer {
             .attr('pointer-events', 'none');
 
           (bigLines as any).merge(bigEnter)
-            .attr('x1', d => this.xPx(d.real[0], bigSize))
-            .attr('y1', d => this.yPx(d.real[1], bigSize))
-            .attr('x2', d => this.xPx(d.gen[0],  bigSize))
-            .attr('y2', d => this.yPx(d.gen[1],  bigSize));
+            .attr('x1', (d: NNPair) => this.xPx(d.real[0], bigSize))
+            .attr('y1', (d: NNPair) => this.yPx(d.real[1], bigSize))
+            .attr('x2', (d: NNPair) => this.xPx(d.gen[0],  bigSize))
+            .attr('y2', (d: NNPair) => this.yPx(d.gen[1],  bigSize));
 
-          bigG.selectAll('.matching-line').raise();
+          overlay.raise();
         }
-
-
 
         // -------- Small right panels (dots only) --------
         {
@@ -907,6 +983,7 @@ class GANLab extends GANLabPolymer {
           const s = d3.select(sSel)
             .selectAll<SVGCircleElement, [number, number]>('.generated-dot')
             .data(candidatePoints);
+
           if (this.iterationCount === 1) {
             s.enter().append('circle')
               .attr('class', 'generated-dot gan-lab')
@@ -915,7 +992,9 @@ class GANLab extends GANLabPolymer {
               .attr('cx', d => this.xPx(d[0], sSize))
               .attr('cy', d => this.yPx(d[1], sSize));
           } else {
-            s.enter().append('circle').attr('class', 'generated-dot gan-lab').attr('r', 1);
+            s.enter().append('circle')
+              .attr('class', 'generated-dot gan-lab')
+              .attr('r', 1);
             d3.select(sSel)
               .selectAll('.generated-dot')
               .data(candidatePoints)
@@ -924,10 +1003,12 @@ class GANLab extends GANLabPolymer {
           }
         }
 
+        // -------- Small right panel: matched (selected) generated samples --------
         {
           const pSel = '#svg-generated-prediction';
           const pSize = this.sizeFor(pSel);
           const selectedPoints: Array<[number, number]> = [];
+
           for (let i = 0; i < idxArr.length; i++) {
             const gi = idxArr[i] * 2;
             selectedPoints.push([genArr[gi], genArr[gi + 1]]);
@@ -936,6 +1017,7 @@ class GANLab extends GANLabPolymer {
           const s2 = d3.select(pSel)
             .selectAll<SVGCircleElement, [number, number]>('.generated-dot')
             .data(selectedPoints);
+
           if (this.iterationCount === 1) {
             s2.enter().append('circle')
               .attr('class', 'generated-dot gan-lab')
@@ -944,7 +1026,9 @@ class GANLab extends GANLabPolymer {
               .attr('cx', d => this.xPx(d[0], pSize))
               .attr('cy', d => this.yPx(d[1], pSize));
           } else {
-            s2.enter().append('circle').attr('class', 'generated-dot gan-lab').attr('r', 1);
+            s2.enter().append('circle')
+              .attr('class', 'generated-dot gan-lab')
+              .attr('r', 1);
             d3.select(pSel)
               .selectAll('.generated-dot')
               .data(selectedPoints)
@@ -973,24 +1057,24 @@ class GANLab extends GANLabPolymer {
           });
 
           const layered = d3.select('#vis-generated-samples');
-          layered.selectAll('.true-dot').lower();
-          layered.selectAll('.generated-dot').raise();
-          layered.selectAll('.vis-discriminator-output').raise();
-          layered.selectAll('.gradient-generated').raise();
+          (layered as any).selectAll('.true-dot').lower();
+          (layered as any).selectAll('.generated-dot').raise();
+          (layered as any).selectAll('.vis-discriminator-output').raise();
+          (layered as any).selectAll('.gradient-generated').raise();
         }
 
-        gradDotsElementList.forEach((dotsElement, k) => {
-          const plotSizePx = k === 0 ? this.plotSizePx : this.smallPlotSizePx;
-          const arrowWidth = k === 0 ? 0.004 : 0.03;
-          const lenScale   = k === 0 ? 5 : 3.0;  // make arrows longer in small panel
+      gradDotsElementList.forEach((dotsElement, k) => {
+        const plotSizePx = k === 0 ? this.plotSizePx : this.smallPlotSizePx;
+        const arrowWidth = k === 0 ? 0.004 : 0.03;
+        const lenScale   = k === 0 ? 5 : 3.0;
 
-          d3Transition.transition()
-            .select(dotsElement)
-            .selectAll('.gradient-generated').selection().data(gradData)
-            .transition().duration(SLOW_INTERVAL_MS)
-            .attr('points', (d: number[]) =>
-              this.createArrowPolygonScaled(d, plotSizePx, arrowWidth, lenScale));
-        });
+        d3.select(dotsElement)
+          .selectAll('.gradient-generated')
+          .data(gradData)
+          .attr('points', (d: number[]) =>
+            this.createArrowPolygonScaled(d, plotSizePx, arrowWidth, lenScale)
+          );
+      });
       });
     }
 
@@ -1011,16 +1095,13 @@ class GANLab extends GANLabPolymer {
     tf.tidy(() => {
       for (let j = 0; j < kGSteps; j++) {
         const gCost = this.model.gOptimizer.minimize(() => {
-          const realBatch = this.trueSampleProvider.getNextCopy() as tf.Tensor2D;
-          const latents = this.getLatentPoolFromFixedProvider(this.sampleFactor);
-          const genBatch = this.model.generator(latents);
-          const nnIdx = this.model.nearest_neighbour(realBatch, genBatch);
-          const matchedNoise = latents.gather(nnIdx);
-          return this.model.imleLoss(realBatch, matchedNoise);
+          // Gather along axis 0: latentPool shape [N, Z], nnIdx shape [B]
+          const matchedNoise = tf.gather(latentPool as tf.Tensor2D, nnIdx as tf.Tensor1D, 0);
+          return this.model.imleLoss(realBatch as tf.Tensor2D, matchedNoise as tf.Tensor2D);
         }, true, this.model.gVariables);
         if ((!keepIterating || this.iterationCount === 1 || this.slowMode ||
             this.iterationCount % VIS_INTERVAL === 0) && j + 1 === kGSteps) {
-          gCostVal = gCost.get();
+          gCostVal = (gCost as tf.Scalar).dataSync()[0];
         }
       }
     });
@@ -1124,32 +1205,52 @@ class GANLab extends GANLabPolymer {
         }
       });
 
-      // Update big generated plot post-update
+      // Update big generated plot post-update (current GEN mini-batch)
       const gData: Array<[number, number]> = [];
       tf.tidy(() => {
-        const noiseFixedBatch = this.noiseProviderFixed.getNextCopy() as tf.Tensor2D;
-        const gResult = this.model.generator(noiseFixedBatch);
-        const gResultData = gResult.dataSync();
+        const gResultData = genPool.dataSync() as Float32Array;
         for (let i = 0; i < gResultData.length / 2; ++i) {
           gData.push([gResultData[i * 2], gResultData[i * 2 + 1]]);
         }
       });
 
-      if (!this.slowMode) {
-        this.gDotsElementList.forEach((sel) => {
-          const size = this.sizeFor(sel);
-          d3Transition.transition()
-            .select(sel)
-            .selectAll('.generated-dot')
-            .selection()
-            .data(gData)
-            .transition().duration(SLOW_INTERVAL_MS)
-            .attr('cx', (d: number[]) => this.xPx(d[0], size))
-            .attr('cy', (d: number[]) => this.yPx(d[1], size))
-            .select('title').text((d: number[], i: number) =>
-              `${Number(d[0]).toFixed(2)},${Number(d[1]).toFixed(2)} (${i})`);
-        });
-      }
+    {
+      const sel = '#vis-generated-samples';
+      const size = this.sizeFor(sel);
+      const batchLayer = d3.select(sel).select('g.gen-batch');
+
+      const dots = batchLayer
+        .selectAll('circle')
+        .data(gData);
+
+      dots.exit().remove();
+
+      const dotsEnter = dots
+        .enter()
+        .append('circle')
+        .attr('class', 'generated-dot batch gan-lab')
+        .attr('r', (size === this.plotSizePx) ? 2 : 1);
+
+      // Ensure title elements exist for new circles
+      dotsEnter.append('title');
+
+      // Use d3Transition.transition() to get a proper transition object
+      d3Transition.transition()
+        .select(sel)
+        .selectAll('g.gen-batch circle')
+        .selection()
+        .data(gData)
+        .transition().duration(this.slowMode ? SLOW_INTERVAL_MS : 0)
+        .attr('cx', (d: number[]) => this.xPx(d[0], size))
+        .attr('cy', (d: number[]) => this.yPx(d[1], size));
+
+      // Update titles
+      d3.select(sel)
+        .selectAll('g.gen-batch circle')
+        .select('title')
+        .text((d: number[], i: number) =>
+          `${Number(d[0]).toFixed(2)},${Number(d[1]).toFixed(2)} (${i})`);
+    }
 
       // Simple grid-based evaluation
       this.evaluator.updateGridsForGenerated(gData);
@@ -1173,6 +1274,10 @@ class GANLab extends GANLabPolymer {
         }
       }
     }
+    nnIdx.dispose();
+    genPool.dispose();
+    latentPool.dispose();
+    realBatch.dispose();
 
     if (this.iterationCount >= 999999) {
       this.isPlaying = false;
@@ -1268,10 +1373,10 @@ class GANLab extends GANLabPolymer {
         ? [{ points: manifoldData }]
         : this.createGridCellsFromManifoldData(manifoldData);
 
-      const gridData = d3.select('#svg-generator-manifold')
+      const gridData = (d3.select('#svg-generator-manifold') as any)
         .selectAll('.grids').data();
 
-      const uniformDotsData = d3.select('#svg-generator-manifold')
+      const uniformDotsData = (d3.select('#svg-generator-manifold') as any)
         .selectAll('.uniform-generated-dot').data();
 
       const size = this.sizeFor('#svg-generator-manifold');
@@ -1336,44 +1441,45 @@ class GANLab extends GANLabPolymer {
       }
     }
   }
-private async highlightIMLEStep(
-  componentElementNames: string[],
-  tooltipElementName: string
-): Promise<void> {
-  await this.sleep(SLOW_INTERVAL_MS);
-  this.dehighlightStep();
 
-  // Safely collect valid DOM elements
-  this.highlightedComponents = componentElementNames
-    .map(name => document.getElementById(name) as HTMLDivElement | null)
-    .filter((el): el is HTMLDivElement => el !== null);
+  private async highlightIMLEStep(
+    componentElementNames: string[],
+    tooltipElementName: string
+  ): Promise<void> {
+    await this.sleep(SLOW_INTERVAL_MS);
+    this.dehighlightStep();
 
-  this.highlightedTooltip = document.getElementById(tooltipElementName) as HTMLDivElement | null;
+    // Safely collect valid DOM elements
+    this.highlightedComponents = componentElementNames
+      .map(name => document.getElementById(name) as HTMLDivElement | null)
+      .filter((el): el is HTMLDivElement => el !== null);
 
-  // Add highlight classes
-  this.highlightedComponents.forEach(component => {
-    component.classList.add('highlighted');
-  });
+    this.highlightedTooltip = document.getElementById(tooltipElementName) as HTMLDivElement | null;
 
-  if (this.highlightedTooltip) {
-    this.highlightedTooltip.classList.add('shown');
-    this.highlightedTooltip.classList.add('highlighted');
-  }
-
-  await this.sleep(SLOW_INTERVAL_MS);
-}
-
-private dehighlightStep(): void {
-  if (this.highlightedComponents) {
+    // Add highlight classes
     this.highlightedComponents.forEach(component => {
-      component.classList.remove('highlighted');
+      component.classList.add('highlighted');
     });
+
+    if (this.highlightedTooltip) {
+      this.highlightedTooltip.classList.add('shown');
+      this.highlightedTooltip.classList.add('highlighted');
+    }
+
+    await this.sleep(SLOW_INTERVAL_MS);
   }
-  if (this.highlightedTooltip) {
-    this.highlightedTooltip.classList.remove('shown');
-    this.highlightedTooltip.classList.remove('highlighted');
+
+  private dehighlightStep(): void {
+    if (this.highlightedComponents) {
+      this.highlightedComponents.forEach(component => {
+        component.classList.remove('highlighted');
+      });
+    }
+    if (this.highlightedTooltip) {
+      this.highlightedTooltip.classList.remove('shown');
+      this.highlightedTooltip.classList.remove('highlighted');
+    }
   }
-}
 
 
   private async onClickSaveModelButton() {

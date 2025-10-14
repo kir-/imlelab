@@ -474,6 +474,22 @@
       fill: rgba(123, 50, 148, 0.75);
     }
 
+    .true-atlas .true-dot {
+      opacity: 0.25;
+    }
+
+    .true-batch .true-dot {
+      opacity: 0.95;
+    }
+
+    .gen-atlas .generated-dot {
+      opacity: 0.25;
+    }
+
+    .gen-batch .generated-dot {
+      opacity: 0.95;
+    }
+
     .uniform-generated-dot {
       fill: rgba(48, 48, 48, 0.5);
     }
@@ -1117,7 +1133,8 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                     width="400" height="400" x="0" y="0"></rect>
                 </g>
                 <g id="vis-samples" class="vis-panel">
-                  <g id="vis-true-samples"></g>
+                  <g id="vis-true-samples-batch"></g>
+                  <g id="vis-true-samples-atlas"></g>
                   <g id="vis-generator-gradients"></g>
                   <g id="vis-generated-samples"></g>
                   <g id="vis-manifold" style="visibility: hidden"></g>
@@ -1133,7 +1150,13 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                 <span id="toggle-right-real-samples" 
                   class="toggle-right checked"
                   title="click to toggle this layer"
-                  style="color: var(--real-data-color);">real samples</span>;
+                  style="color: var(--real-data-color);">training samples</span>;
+                <span id="toggle-right-real-distribution-samples"
+                    class="toggle-right checked"
+                    title="click to toggle this layer"
+                    style="color: var(--real-data-color); opacity: 0.45;">
+                true distribution
+              </span>;
                 <span id="toggle-right-fake-samples"
                   class="toggle-right checked"
                   title="click to toggle this layer"
@@ -1165,7 +1188,7 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                   class="toggle-right checked"
                   title="click to toggle this layer"
                   style="color: var(--gradient-color);">
-                  gradients</span> for generator.
+                  gradients</span> for the generator.
                 <br />
                 <svg width="12" height="12">
                   <circle class="generated-dot" r="2"
