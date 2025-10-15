@@ -1,5 +1,17 @@
 import * as tf from '@tensorflow/tfjs-core';
 
+function glorotStd(fanIn: number, fanOut: number) {
+  return Math.sqrt(2 / (fanIn + fanOut));
+}
+
+function leaky<T extends tf.Tensor>(x: T, a = 0.01): T {
+  return tf.tidy(() => {
+    const alpha = tf.scalar(a); 
+    const ax = x.mul(alpha) as T;
+    return tf.maximum(x, ax) as T;
+  });
+}
+
 export class IMLELabModel {
   gVariables: tf.Variable[] = [];
   gOptimizer: tf.Optimizer;
@@ -23,25 +35,22 @@ export class IMLELabModel {
 
     // Generator
     const gfc0W = tf.variable(
-      tf.randomNormal([this.noiseSize, this.numGeneratorNeurons], 0, 1 / Math.sqrt(2))
-    );
+      tf.randomNormal([this.noiseSize, this.numGeneratorNeurons], 0,
+                      glorotStd(this.noiseSize, this.numGeneratorNeurons)));
     const gfc0B = tf.variable(tf.zeros([this.numGeneratorNeurons]));
     this.gVariables.push(gfc0W, gfc0B);
 
     for (let i = 0; i < this.numGeneratorLayers; ++i) {
       const gfcW = tf.variable(
-        tf.randomNormal(
-          [this.numGeneratorNeurons, this.numGeneratorNeurons],
-          0, 1 / Math.sqrt(this.numGeneratorNeurons)
-        )
-      );
+      tf.randomNormal([this.numGeneratorNeurons, this.numGeneratorNeurons], 0,
+                      glorotStd(this.numGeneratorNeurons, this.numGeneratorNeurons)));
       const gfcB = tf.variable(tf.zeros([this.numGeneratorNeurons]));
       this.gVariables.push(gfcW, gfcB);
     }
 
     const gfcLastW = tf.variable(
-      tf.randomNormal([this.numGeneratorNeurons, 2], 0, 1 / Math.sqrt(this.numGeneratorNeurons))
-    );
+    tf.randomNormal([this.numGeneratorNeurons, 2], 0,
+                    glorotStd(this.numGeneratorNeurons, 2)));
     const gfcLastB = tf.variable(tf.zeros([2]));
     this.gVariables.push(gfcLastW, gfcLastB);
   }
@@ -55,16 +64,16 @@ export class IMLELabModel {
     const gfc0W = this.gVariables[0] as tf.Tensor2D;
     const gfc0B = this.gVariables[1];
 
-    let h = noiseTensor.matMul(gfc0W).add(gfc0B).relu();
+    let h = leaky(noiseTensor.matMul(gfc0W).add(gfc0B));
     for (let i = 0; i < this.numGeneratorLayers; ++i) {
       const W = this.gVariables[2 + i * 2] as tf.Tensor2D;
       const B = this.gVariables[3 + i * 2];
-      h = h.matMul(W).add(B).relu();
+      h = leaky(h.matMul(W).add(B));
     }
 
     const gfcLastW = this.gVariables[2 + this.numGeneratorLayers * 2] as tf.Tensor2D;
     const gfcLastB = this.gVariables[3 + this.numGeneratorLayers * 2];
-    return h.matMul(gfcLastW).add(gfcLastB).tanh() as tf.Tensor2D;
+    return h.matMul(gfcLastW).add(gfcLastB).tanh().add(tf.scalar(0.5)) as tf.Tensor2D;
   }
 
   nearest_neighbour(
