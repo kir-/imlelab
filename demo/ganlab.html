@@ -148,11 +148,8 @@
     }
 
     #next-step-g-button {
-      color: rgb(163, 62, 189);
-    }
-
-    #next-step-d-button {
-      color: rgb(68, 124, 228);
+      /* color: rgb(163, 62, 189); */
+      color: rgba(1, 70, 87);
     }
 
     #iteration {
@@ -234,7 +231,7 @@
     }
 
     #model-vis-svg path.g-update-flow.g-activated {
-      stroke: rgb(186, 99, 207);
+      stroke: rgb(0, 110, 137);
       stroke-width: 4;
     }
 
@@ -328,12 +325,8 @@
       width: 0;
     }
 
-    #d-loss-bar {
-      background-color: rgb(105, 158, 255);
-    }
-
     #g-loss-bar {
-      background-color: rgb(186, 99, 207);
+      background-color: rgba(0, 110, 137);
     }
 
     .config-item {
@@ -467,11 +460,14 @@
     }
 
     .true-dot {
-      fill: rgba(0, 136, 55, 0.75);
+      /* fill: rgba(0, 136, 55, 0.75); */
+      fill: rgba(210, 87, 65, 0.85);
     }
 
     .generated-dot, .noise-dot {
-      fill: rgba(123, 50, 148, 0.75);
+      /* fill: rgba(123, 50, 148, 0.75); */
+      /* fill: rgba(110, 191, 194, 0.75); */
+      fill: rgba(55, 133, 136, 0.85);
     }
 
     .true-atlas .true-dot {
@@ -491,22 +487,25 @@
     }
 
     .uniform-generated-dot {
-      fill: rgba(48, 48, 48, 0.5);
+      /* fill: rgba(48, 48, 48, 0.5); */
+      stroke: rgba(255, 0, 0, 0.25);
     }
 
     .manifold-cell {
-      stroke: rgba(160, 160, 160, 0.25);
+      /* stroke: rgba(160, 160, 160, 0.25); */
+      stroke: rgba(0, 110, 137, 0.25);
     }
 
     .gradient-generated {
-      fill: rgba(196, 20, 219, 0.5);
+      fill: rgba(0, 155, 255, 0.45);
       stroke-width: 0;
     }
 
     #layers-descriptions .gradient-generated {
-      stroke: rgba(196, 20, 219, 0.5);
+      stroke: rgba(0, 155, 255, 0.55);
       stroke-width: 1;
     }
+
 
     #model-visualization-container.any-highlighted .model-component {
       opacity: 0.4;
@@ -538,19 +537,19 @@
     }
 
     #component-discriminator svg {
-      border-color: rgba(105, 158, 255, 0.65);
+      border-color: rgba(255, 220, 60, 0.65);
     }
 
     #component-generator svg {
-      border-color: rgba(186, 99, 207, 0.5);
+      border-color: rgba(0, 110, 137, 0.5);
     }
 
     #component-discriminator.highlighted svg {
-      border-color: rgb(105, 158, 255);
+      border-color: rgb(255, 220, 60);
     }
 
     #component-generator.highlighted svg {
-      border-color: rgb(186, 99, 207);
+      border-color: rgb(0, 110, 137);
     }
 
     #component-discriminator.deactivated svg,
@@ -591,7 +590,7 @@
     }
 
     .tooltip-for-g {
-      background-color: rgb(170, 79, 192);
+      background-color: rgba(0, 110, 137);
     }
 
     #tooltips.shown {
@@ -640,7 +639,7 @@
   <template>    
     <div id="top-panel">
       <div id="top-panel-container" class="panel-container">
-        <div id="page-title" class="top-panel-item"><strong>IMLE</strong> Lab</div>
+        <div id="page-title" class="top-panel-item"><strong>IMLE</strong> Visualizer</div>
 
         <div id="distribution-selection" class="top-panel-item">
           <div class="top-column-title">Data Distribution</div>
@@ -653,14 +652,14 @@
                 src="images/distribution-line.png" />
             </div>
             <div class="distribution-image">
-              <img class="distribution-item selected" 
+              <img class="distribution-item" 
                 id="distribution-item-gaussians" 
                 data-distribution-name="gaussians" 
                 title="Mixture of Gaussians" 
                 src="images/distribution-gaussians.png" />
             </div>
             <div class="distribution-image">
-              <img class="distribution-item" 
+              <img class="distribution-item selected" 
                 id="distribution-item-ring" 
                 data-distribution-name="ring"
                 title="Ring" 
@@ -682,8 +681,7 @@
           </div>
           <div id="distribution-selection-checkbox">
             <paper-checkbox id="toggle-pretrained" 
-              title="Train on top of a pre-trained model or train from scratch"
-              checked>
+              title="Train on top of a pre-trained model or train from scratch">
               Use pre-trained model
             </paper-checkbox>
           </div>
@@ -1167,7 +1165,7 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                 <span id="toggle-right-discriminator"
                   class="toggle-right checked"
                   title="click to toggle this layer"
-                  style="color: rgb(64, 128, 247);">
+                  style="color: var(--discriminator-color);">
                     nearest neighbour</span> distance.
                 <br />
               </div>
@@ -1182,23 +1180,22 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                 Opacity encodes density:
                 darker purple means more samples in smaller area.
               </div>
-              <div class="layers-descriptions-section"> 
-                Pink lines from generated samples represent
+              <div class="layers-descriptions-section">
+                Arrows indicate 
                 <span id="toggle-right-gradients"
                   class="toggle-right checked"
-                  title="click to toggle this layer"
+                  title="Click to toggle this layer"
                   style="color: var(--gradient-color);">
-                  gradients</span> for the generator.
+                  gradient directions
+                </span> guiding samples toward real data.
                 <br />
                 <svg width="12" height="12">
-                  <circle class="generated-dot" r="2"
-                    transform="translate(2,10)"></circle>
+                  <circle class="generated-dot" r="2" transform="translate(2,10)"></circle>
                   <polygon class="gradient-generated"
                     transform="translate(2,10)"
                     points="0,0 1,1 10,-10 -1,-1"></polygon>
-                </svg> 
-                This sample needs to move upper right 
-                to decrease generator's loss.
+                </svg>
+                This sample needs to move up and to the right to reduce the generator’s loss.
               </div>
             </div>
 

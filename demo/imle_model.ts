@@ -73,7 +73,7 @@ export class IMLELabModel {
 
     const gfcLastW = this.gVariables[2 + this.numGeneratorLayers * 2] as tf.Tensor2D;
     const gfcLastB = this.gVariables[3 + this.numGeneratorLayers * 2];
-    return h.matMul(gfcLastW).add(gfcLastB).tanh().add(tf.scalar(0.5)) as tf.Tensor2D;
+    return h.matMul(gfcLastW).add(gfcLastB).tanh().mul(tf.scalar(0.5)).add(tf.scalar(0.5)) as tf.Tensor2D;
   }
 
   nearest_neighbour(

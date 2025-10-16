@@ -8,7 +8,7 @@ export class GANLabDrawing {
     this.isDrawing = false;
 
     this.context = canvas.getContext('2d');
-    this.context.strokeStyle = 'rgba(0, 136, 55, 0.25)';
+    this.context.strokeStyle = 'rgba(210, 87, 65, 0.25)';
     this.context.lineJoin = 'round';
     this.context.lineWidth = 10;
     const drawingContainer =
