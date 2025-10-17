@@ -954,7 +954,7 @@ class GANLab extends GANLabPolymer {
           const lEnter = lSel.enter()
             .append('line')
             .attr('class', 'matching-line gan-lab')
-            .attr('stroke-width', 1.5).attr('opacity', 0.4).attr('stroke', '#ffdc3c');
+            .attr('stroke-width', 1.0).attr('opacity', 0.7).attr('stroke', '#ff6961');
 
           (lSel as any).merge(lEnter)
             .attr('x1', (d: NNPair) => this.xPx(d.real[0], sizeNN))
@@ -979,9 +979,9 @@ class GANLab extends GANLabPolymer {
           const bigEnter = bigLines.enter()
             .append('line')
             .attr('class', 'matching-line gan-lab')
-            .attr('stroke-width', 1.5)
-            .attr('opacity', 0.4)
-            .attr('stroke', '#ffdc3c')
+            .attr('stroke-width', 1.0)
+            .attr('opacity',  0.7)
+            .attr('stroke', '#ff6961')
             .attr('pointer-events', 'none');
 
           (bigLines as any).merge(bigEnter)
@@ -1062,30 +1062,38 @@ class GANLab extends GANLabPolymer {
           const arrowWidth = idx === 0 ? 0.004 : 0.01;
           const lenScale   = idx === 0 ? 5 : 6.0;
 
-          // dedicated layer
-          let layer = d3.select(sel).select<SVGGElement>('g.grad-layer') as any;
-          if (layer.empty()) layer = d3.select(sel).append('g').attr('class', 'grad-layer gan-lab') as any;
+          // ensure a <g> layer
+          let layer = d3.select(sel).select('g.grad-layer');
+          if (layer.empty()) {
+            layer = d3.select(sel)
+              .append('g')
+              .attr('class', 'grad-layer gan-lab');
+          }
 
           // KEY BY k (d[4])
-          const join = layer.selectAll('polygon.grad-arrow')
-            .data(avgGradData as any, (d: any) => d[4]);
+          const join = layer
+            .selectAll('polygon.grad-arrow')
+            .data(avgGradData as any, (d: any) => (d ? d[4] : undefined));
 
           join.exit().remove();
 
           const enter = join.enter()
             .append('polygon')
             .attr('class', 'grad-arrow gradient-generated gan-lab')
-            .style('fill', 'rgba(0, 153, 255, 0.8)')
+            // bright cyan fill
+            .style('fill', 'rgba(120, 210, 220, 0.9)')
+            // darker outline for contrast
+            .style('stroke', 'rgba(58, 169, 210, 0.95)')
+            .style('stroke-width', Math.max(1.0, plotSizePx * 0.002))
             .style('opacity', 0);
 
-          const merged = (enter as any).merge(join as any);
+          const merged = enter.merge(join);
           merged
             .style('opacity', 1)
             .attr('points', (d: number[]) =>
               this.createArrowPolygonScaled(d, plotSizePx, arrowWidth, lenScale)
             );
         });
-
       });
     }
 
@@ -1297,26 +1305,26 @@ class GANLab extends GANLabPolymer {
     requestAnimationFrame(() => this.iterateTraining(true));
   }
 
-  private createArrowPolygon(d: number[],
-    plotSizePx: number, arrowWidth: number) {
-    const gradSize = Math.sqrt(d[2] * d[2] + d[3] * d[3] + 0.00000001);
-    const xNorm = d[2] / gradSize;
-    const yNorm = d[3] / gradSize;
-    return `${d[0] * plotSizePx},
-      ${(1.0 - d[1]) * plotSizePx}
-      ${(d[0] - yNorm * (-1) * arrowWidth) * plotSizePx},
-      ${(1.0 - (d[1] - xNorm * arrowWidth)) * plotSizePx}
-      ${(d[0] + d[2] * GRAD_ARROW_UNIT_LEN) * plotSizePx},
-      ${(1.0 - (d[1] + d[3] * GRAD_ARROW_UNIT_LEN)) * plotSizePx}
-      ${(d[0] - yNorm * arrowWidth) * plotSizePx},
-      ${(1.0 - (d[1] - xNorm * (-1) * arrowWidth)) * plotSizePx}`;
-  }
-
   private createArrowPolygonScaled(d: number[], plotSizePx: number, arrowWidth: number, lenScale: number) {
-    const gradSize = Math.sqrt(d[2] * d[2] + d[3] * d[3] + 1e-8);
-    const xNorm = d[2] / gradSize;
-    const yNorm = d[3] / gradSize;
-    const len = GRAD_ARROW_UNIT_LEN * lenScale;
+    const eps = 1e-12;
+    const gx = d[2], gy = d[3];
+    const mag = Math.sqrt(gx * gx + gy * gy + eps);
+    const xNorm = gx / mag;
+    const yNorm = gy / mag;
+
+    // ---- Compression: s = (mag / (mag + k))^gamma in [0,1)
+    // k: where it’s ~50% (raise k → more compression overall)
+    // gamma < 1 boosts small values more; >1 dampens them
+    const k     = 0.25;   // try 0.25–0.6 depending on your gradient scale
+    const gamma = 0.55;   // 0.45–0.7: lift small, compress big
+    const s = Math.pow(mag / (mag + k), gamma);
+
+    // Map to [floor, cap] so arrows never vanish/never explode
+    const floor = 0.80;   // raise to make very small arrows bigger
+    const cap   = 0.22;   // lower to shrink very large arrows more
+    const scale = floor + (cap - floor) * s;
+
+    const len = GRAD_ARROW_UNIT_LEN * lenScale * scale;
 
     return `${d[0] * plotSizePx},
       ${(1.0 - d[1]) * plotSizePx}
@@ -1327,7 +1335,6 @@ class GANLab extends GANLabPolymer {
       ${(d[0] - yNorm * arrowWidth) * plotSizePx},
       ${(1.0 - (d[1] - xNorm * (-1) * arrowWidth)) * plotSizePx}`;
   }
-
 
   private createGridCellsFromManifoldData(manifoldData: Float32Array[]) {
     const gridData: ManifoldCell[] = [];

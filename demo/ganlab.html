@@ -67,7 +67,7 @@
     }
 
     .distribution-image i {
-      color: rgb(233, 186, 33);
+      color: rgb(255, 180, 100);
     }
 
     .distribution-item {
@@ -497,12 +497,12 @@
     }
 
     .gradient-generated {
-      fill: rgba(0, 155, 255, 0.45);
+      fill: rgba(120, 210, 220, 0.45);
       stroke-width: 0;
     }
 
     #layers-descriptions .gradient-generated {
-      stroke: rgba(0, 155, 255, 0.55);
+      stroke: rgba(120, 210, 220, 0.55);
       stroke-width: 1;
     }
 
@@ -537,7 +537,7 @@
     }
 
     #component-discriminator svg {
-      border-color: rgba(255, 220, 60, 0.65);
+      border-color: rgba(255, 105, 97, 0.65);
     }
 
     #component-generator svg {
@@ -545,7 +545,7 @@
     }
 
     #component-discriminator.highlighted svg {
-      border-color: rgb(255, 220, 60);
+      border-color: rgb(255, 105, 97);
     }
 
     #component-generator.highlighted svg {
@@ -1022,7 +1022,7 @@
 
               <div id="component-true-samples" class="model-component"
                 style="top: 136px; left: 255px">
-                <div class="component-sub-label">Real
+                <div class="component-sub-label">Data
                   <div id="t-samples-toggle" class="checkbox-toggle"
                     title="show/hide real samples">
                     <paper-checkbox type="checkbox" id="show-t-samples" 
@@ -1084,14 +1084,14 @@
                 class="tooltip tooltip-for-g"
                 style="top:0; left:150px">
               <div class="tooltip-number">2</div>
-              Find nearest generated for each real sample
+              Match data → nearest generated
             </div>
 
             <div id="tooltip-imle-loss"
                 class="tooltip tooltip-for-g"
                 style="top:0; left:300px">
               <div class="tooltip-number">3</div>
-              Compute L2 loss (real ↔ generated)
+              Compute L2 loss (data ↔ nearest generated)
             </div>
 
             <!-- Bottom row -->
@@ -1161,12 +1161,12 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                   style="color: var(--generator-color);">generated samples</span>.
               </div>
               <div class="layers-descriptions-section">
-                The lines represent the nearest generated sample for each real sample, based on the 
+                The lines represent the 
                 <span id="toggle-right-discriminator"
                   class="toggle-right checked"
                   title="click to toggle this layer"
                   style="color: var(--discriminator-color);">
-                    nearest neighbour</span> distance.
+                    nearest</span> generated sample for each real sample, based on the selected distance function.
                 <br />
               </div>
               <div class="layers-descriptions-section">
@@ -1186,14 +1186,20 @@ multiple layers. The layers can be turned on or off using checkboxes.">
                   class="toggle-right checked"
                   title="Click to toggle this layer"
                   style="color: var(--gradient-color);">
-                  gradient directions
+                  gradients
                 </span> guiding samples toward real data.
                 <br />
                 <svg width="12" height="12">
-                  <circle class="generated-dot" r="2" transform="translate(2,10)"></circle>
-                  <polygon class="gradient-generated"
+                  <polygon
+                    class="grad-arrow gradient-generated gan-lab"
                     transform="translate(2,10)"
-                    points="0,0 1,1 10,-10 -1,-1"></polygon>
+                    points="0,0 1,1 10,-10 -1,-1"
+                    style="
+                      fill: rgba(120, 210, 220, 0.9);
+                      stroke: rgba(58, 169, 210, 0.95);
+                      stroke-width: 1.2;
+                      opacity: 1;"></polygon>
+                      <circle class="generated-dot" r="2" transform="translate(2,10)"></circle>
                 </svg>
                 This sample needs to move up and to the right to reduce the generator’s loss.
               </div>
