@@ -1,6 +1,5 @@
 import * as d3 from 'd3-selection';
-import { scaleSequential } from 'd3-scale';
-import { interpolateGreens, interpolatePRGn } from 'd3-scale-chromatic';
+import { interpolatePRGn } from 'd3-scale-chromatic';
 import { line } from 'd3-shape';
 import * as d3Transition from 'd3-transition';
 
@@ -15,6 +14,7 @@ import * as imlelab_models from './imle_model';
 declare const Chart: any;
 type ChartPoint = { x: number; y: number | null };
 type ChartData = ChartPoint[];
+type GPt = { x: number; y: number; id: number };
 
 /* ----------------------------------------------------------------------------
    Constants
@@ -24,7 +24,7 @@ const ATLAS_SIZE = 12000;
 
 const NUM_GRID_CELLS = 30;
 const NUM_MANIFOLD_CELLS = 20;
-const GRAD_ARROW_UNIT_LEN = 0.15;
+const GRAD_ARROW_UNIT_LEN = 0.05;
 const NUM_TRUE_SAMPLES_VISUALIZED = 450;
 
 const VIS_INTERVAL = 50;
@@ -61,6 +61,10 @@ class GANLab extends GANLabPolymer {
   private noiseProvider!: ganlab_input_providers.InputProvider;
   private trueSampleProvider!: ganlab_input_providers.InputProvider;
   private uniformNoiseProvider!: ganlab_input_providers.InputProvider;
+  private noiseProviderFixed!: ganlab_input_providers.InputProvider;
+  private fixedLatentPool?: tf.Tensor2D;
+  private fixedLatents: boolean = true;
+
   private usePretrained: boolean;
 
   private model!: imlelab_models.IMLELabModel;
@@ -127,6 +131,12 @@ class GANLab extends GANLabPolymer {
     for (let i = 0; i < factor; ++i) {
       batches.push(this.noiseProvider.getNextCopy() as tf.Tensor2D);
     }
+    return tf.concat(batches, 0) as tf.Tensor2D;
+  }
+
+  private getLatentPoolFrom(provider: ganlab_input_providers.InputProvider, factor: number): tf.Tensor2D {
+    const batches: tf.Tensor2D[] = [];
+    for (let i = 0; i < factor; ++i) batches.push(provider.getNextCopy() as tf.Tensor2D);
     return tf.concat(batches, 0) as tf.Tensor2D;
   }
 
@@ -388,6 +398,29 @@ class GANLab extends GANLabPolymer {
         this.playGeneratorAnimation();
       });
 
+    const fixedLatentsEl = this.querySelector('#toggle-fixed-latents-pc') as any;
+    if (fixedLatentsEl) {
+      // Initialize from current checkbox state
+      this.fixedLatents = !!fixedLatentsEl.checked;
+
+      // Paper-checkbox fires native 'change' and Polymer 'iron-change'
+      const onFixedChange = (ev: Event) => {
+        const el = (ev.currentTarget || ev.target) as any;
+        this.fixedLatents = !!el.checked;
+
+        // If turning ON while running, rebuild the cached pool
+        if (this.fixedLatents) {
+          if (this.fixedLatentPool) this.fixedLatentPool.dispose();
+          this.fixedLatentPool = tf.keep(
+            this.getLatentPoolFrom(this.noiseProviderFixed, this.sampleFactor)
+          );
+        }
+      };
+
+      fixedLatentsEl.addEventListener('change', onFixedChange);
+      fixedLatentsEl.addEventListener('iron-change', onFixedChange);
+    }
+
     // Drawing-related
     this.canvas = document.getElementById('input-drawing-canvas') as HTMLCanvasElement;
     this.drawing = new ganlab_drawing.GANLabDrawing(this.canvas, this.plotSizePx);
@@ -471,6 +504,9 @@ class GANLab extends GANLabPolymer {
     noiseProviderBuilder.generateAtlas();
     this.noiseProvider = noiseProviderBuilder.getInputProvider();
     this.noiseProviderFixed = noiseProviderBuilder.getInputProvider(true);
+
+    if (this.fixedLatentPool) this.fixedLatentPool.dispose();
+    this.fixedLatentPool = tf.keep(this.getLatentPoolFrom(this.noiseProviderFixed, this.sampleFactor));
 
     const drawingPositions = this.drawing.drawingPositions;
     const trueSampleProviderBuilder =
@@ -766,575 +802,668 @@ class GANLab extends GANLabPolymer {
     const pad = '000000';
     return (pad + n).slice(-pad.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
-
   private async iterateTraining(keepIterating: boolean, type?: string) {
-    if (!this.isPlaying) return;
+  if (!this.isPlaying) return;
 
-    this.iterationCount++;
+  this.iterationCount++;
 
-    const realBatch = tf.keep(this.trueSampleProvider.getNextCopy() as tf.Tensor2D);
-    const latentPool = tf.keep(this.getLatentPoolFromProvider(this.sampleFactor));
-    const genPool    = tf.keep(this.model.generator(latentPool) as tf.Tensor2D);
+  const realBatch = tf.keep(this.trueSampleProvider.getNextCopy() as tf.Tensor2D);
 
-    // nearest neighbor indices real → generated (int32)
-    const nnIdx = tf.keep(this.model.nearest_neighbour(realBatch, genPool).toInt() as tf.Tensor1D);
+  // === Build TRAIN pool (fresh each iter) ===
+  const latentPoolTrain = tf.keep(this.getLatentPoolFromProvider(this.sampleFactor));
+  const genPoolTrain    = tf.keep(this.model.generator(latentPoolTrain) as tf.Tensor2D);
+  const nnIdxTrain      = tf.keep(
+    this.model.nearest_neighbour(realBatch, genPoolTrain).toInt() as tf.Tensor1D
+  );
 
-    if (!keepIterating || this.iterationCount === 1 || this.slowMode ||
-        this.iterationCount % EPOCH_INTERVAL === 0) {
-      this.iterCountElement.innerText = this.zeroPad(this.iterationCount);
+  // === Build VIZ pool (fixed if enabled; else reuse train) ===
+  const useFixed = this.fixedLatents && this.fixedLatentPool != null;
+  const latentPoolViz = useFixed
+    ? tf.keep(this.fixedLatentPool)
+    : latentPoolTrain;
+  const genPoolViz = useFixed
+    ? tf.keep(this.model.generator(latentPoolViz) as tf.Tensor2D)
+    : genPoolTrain;
+  const nnIdxViz = useFixed
+    ? tf.keep(this.model.nearest_neighbour(realBatch, genPoolViz).toInt() as tf.Tensor1D)
+    : nnIdxTrain;
 
-      d3.select('#model-vis-svg')
-        .selectAll('path')
-        .style('stroke-dashoffset', () => this.iterationCount * (-1));
-    }
+  // header tick (iteration counter + animated dashed arrows in arch diagram)
+  if (
+    !keepIterating ||
+    this.iterationCount === 1 ||
+    this.slowMode ||
+    this.iterationCount % EPOCH_INTERVAL === 0
+  ) {
+    this.iterCountElement.innerText = this.zeroPad(this.iterationCount);
+    d3.select('#model-vis-svg')
+      .selectAll('path')
+      .style('stroke-dashoffset', () => this.iterationCount * (-1));
+  }
 
-    // Visualize generated samples before training.
-    if (this.slowMode) {
-      const container = document.getElementById('model-visualization-container')!;
-      if (!container.classList.contains('any-highlighted')) {
-        container.classList.add('any-highlighted');
+  const shouldRender =
+    !keepIterating ||
+    this.iterationCount === 1 ||
+    this.slowMode ||
+    this.iterationCount % VIS_INTERVAL === 0;
+
+  // CLEAN PREVIOUS STEP ARTIFACTS (slowMode reset)
+  // ------------------------------------------------------------------
+  // At the start of each iteration, before Step 1 highlight,
+  // wipe NN lines, matched subset dots, and gradient arrows
+  // so Step 1 is "pure generator".
+  if (this.slowMode && shouldRender) {
+    // NN lines in small and big panels
+    d3.select('#svg-discriminator-output')
+      .selectAll('.matching-line')
+      .remove();
+    d3.select('#vis-discriminator-output')
+      .selectAll('.matching-line')
+      .remove();
+    d3.select('#vis-discriminator-output')
+      .select('g.matching-overlay')
+      .selectAll('*')
+      .remove();
+
+    // matched subset panel (NN samples box)
+    d3.select('#svg-generated-prediction')
+      .selectAll('.generated-dot')
+      .remove();
+
+    // gradient arrows (both big + small gradient panels)
+    ['#vis-generator-gradients', '#svg-generator-gradients'].forEach(sel => {
+      d3.select(sel)
+        .select('g.grad-layer')
+        .selectAll('.grad-arrow')
+        .remove();
+    });
+  }
+
+  // Precompute all geometry from CURRENT generator output (before weight update)
+  // ------------------------------------------------------------------
+  let gDataCurrent: Array<[number, number]> = [];
+  let realPoints: Array<[number, number]> = [];
+  let candidatePoints: Array<[number, number]> = [];
+  let pairs: { real: [number, number]; gen: [number, number] }[] = [];
+  let selectedPoints: Array<[number, number]> = [];
+  let avgGradData: [number, number, number, number, number][] = [];
+  let gCostVal: number | null = null;
+
+  if (shouldRender) {
+    tf.tidy(() => {
+      // generated positions
+      const gArr = genPoolViz.dataSync() as Float32Array;
+      gDataCurrent = new Array(gArr.length / 2);
+      for (let i = 0, j = 0; i < gArr.length; i += 2, j++) {
+        gDataCurrent[j] = [gArr[i], gArr[i + 1]];
       }
 
-      await this.sleep(SLOW_INTERVAL_MS);
+      // real batch pts
+      const realArr = realBatch.dataSync() as Float32Array;
+      for (let i = 0; i < realArr.length; i += 2) {
+        realPoints.push([realArr[i], realArr[i + 1]]);
+      }
 
-      await this.highlightIMLEStep(
-        ['component-noise', 'component-generator', 'component-generated-samples'],
-        'tooltip-generated-samples');
-    }
+      // all generated pts
+      for (let i = 0; i < gArr.length; i += 2) {
+        candidatePoints.push([gArr[i], gArr[i + 1]]);
+      }
 
-    // show generated samples (fixed noise) pre-update
-    tf.tidy(() => {
-      if (!keepIterating || this.iterationCount === 1 || this.slowMode ||
-          this.iterationCount % VIS_INTERVAL === 0) {
+      // nearest-neighbour matches
+      const idxArr = (nnIdxViz as tf.Tensor1D).dataSync() as Int32Array;
+      const nGen = gArr.length / 2;
+      const gSumX = new Float32Array(nGen);
+      const gSumY = new Float32Array(nGen);
+      const gCnt  = new Int32Array(nGen);
 
-        // Reuse the SAME generated points for this iteration
-        const gArr = genPool.dataSync() as Float32Array;
-        const gDataBefore: Array<[number, number]> = [];
-        for (let i = 0; i < gArr.length; i += 2) {
-          gDataBefore.push([gArr[i], gArr[i + 1]]);
-        }
+      for (let i = 0; i < idxArr.length; i++) {
+        const ri = i * 2;
+        const gi = idxArr[i] * 2;
+        const realPt: [number, number] = [realArr[ri], realArr[ri + 1]];
+        const genPt:  [number, number] = [gArr[gi],  gArr[gi + 1]];
+        pairs.push({ real: realPt, gen: genPt });
 
-        if (this.iterationCount === 1) {
-          this.gDotsElementList.forEach((sel) => {
-            const size = this.sizeFor(sel);
-            const radius = (size === this.plotSizePx) ? 2 : 1;
-            d3.select(sel).select('g.gen-batch') // batch layer
-              .selectAll('.generated-dot')
-              .data(gDataBefore)
-              .enter()
-              .append('circle')
-              .attr('class', 'generated-dot batch gan-lab')
-              .attr('r', radius)
-              .attr('cx', (d: number[]) => this.xPx(d[0], size))
-              .attr('cy', (d: number[]) => this.yPx(d[1], size))
-              .append('title')
-              .text((d: number[]) =>
-                `${Number(d[0]).toFixed(2)},${Number(d[1]).toFixed(2)}`);
-          });
-        } else {
-          this.gDotsElementList.forEach((sel) => {
-            const size = this.sizeFor(sel);
-            const batchLayer = d3.select(sel).select('g.gen-batch');
-            
-            const batchDots = batchLayer
-              .selectAll('.generated-dot')
-              .data(gDataBefore);
+        // matched subset for NN samples panel
+        selectedPoints.push([gArr[gi], gArr[gi + 1]]);
 
-            batchDots.exit().remove();
+        // accumulate pull vectors for gradients
+        gSumX[gi / 2] += (realPt[0] - genPt[0]);
+        gSumY[gi / 2] += (realPt[1] - genPt[1]);
+        gCnt [gi / 2] += 1;
+      }
 
-            batchDots.enter()
-              .append('circle')
-              .attr('class', 'generated-dot batch gan-lab')
-              .attr('r', (size === this.plotSizePx) ? 2 : 1);
-
-            // Use d3Transition.transition() for the animation
-            d3Transition.transition()
-              .select(sel)
-              .selectAll('g.gen-batch .generated-dot')
-              .selection()
-              .data(gDataBefore)
-              .transition().duration(SLOW_INTERVAL_MS / 600)
-              .attr('cx', (d: number[]) => this.xPx(d[0], size))
-              .attr('cy', (d: number[]) => this.yPx(d[1], size));
-          });
+      // avgGradData (for gradient arrows)
+      for (let k = 0; k < nGen; k++) {
+        if (gCnt[k] > 0) {
+          const gx = gSumX[k] / gCnt[k];
+          const gy = gSumY[k] / gCnt[k];
+          const x = gArr[2 * k];
+          const y = gArr[2 * k + 1];
+          avgGradData.push([x, y, gx, gy, k]);
         }
       }
     });
+  }
 
-    if (this.slowMode) {
-      await this.highlightIMLEStep(
-        ['component-true-samples', 'component-generated-samples', 'component-discriminator'],
-        'tooltip-imle-matching');
-    }
-
-    // ---------------------------
-    // NN rendering (real ↔ gen) and real-batch rendering on big plot
-    // ---------------------------
-    if (!keepIterating || this.iterationCount === 1 || this.slowMode || this.iterationCount % VIS_INTERVAL === 0) {
-      tf.tidy(() => {
-        const realArr = realBatch.dataSync() as Float32Array;
-        const realPoints: Array<[number, number]> = [];
-        for (let i = 0; i < realArr.length; i += 2) {
-          realPoints.push([realArr[i], realArr[i + 1]]);
-        }
-
-        const genArr = genPool.dataSync() as Float32Array;
-        const candidatePoints: Array<[number, number]> = [];
-        for (let i = 0; i < genArr.length; i += 2) {
-          candidatePoints.push([genArr[i], genArr[i + 1]]);
-        }
-
-        const idxArr = nnIdx.dataSync() as Int32Array;
-
-        type NNPair = { real: [number, number]; gen: [number, number] };
-        const pairs: NNPair[] = [];
-
-        // --- Aggregate gradients per generated point ---
-        const nGen = genArr.length / 2;
-        const gSumX = new Float32Array(nGen);
-        const gSumY = new Float32Array(nGen);
-        const gCnt  = new Int32Array(nGen);
-
-        for (let i = 0; i < idxArr.length; i++) {
-          const ri = i * 2;
-          const gi = idxArr[i] * 2;
-
-          const real: [number, number] = [realArr[ri], realArr[ri + 1]];
-          const gen:  [number, number] = [genArr[gi],  genArr[gi + 1]];
-          pairs.push({ real, gen });
-
-          // accumulate gradient vector pointing gen → real
-          gSumX[gi / 2] += (real[0] - gen[0]);
-          gSumY[gi / 2] += (real[1] - gen[1]);
-          gCnt [gi / 2] += 1;
-        }
-
-        // Build one averaged vector per generated point that was matched at least once
-        const avgGradData: [number, number, number, number, number][] = [];
-        for (let k = 0; k < nGen; k++) {
-          if (gCnt[k] > 0) {
-            const gx = gSumX[k] / gCnt[k];
-            const gy = gSumY[k] / gCnt[k];
-            const x = genArr[2 * k], y = genArr[2 * k + 1];
-            avgGradData.push([x, y, gx, gy, k]);
-          }
-        }
-
-        
-
-        // Big panel: draw the current REAL mini-batch on top of the atlas
-        {
-          const bigSel = '#vis-true-samples-batch';
-          const bigSize = this.sizeFor('#vis-generated-samples'); // same scale as big plot
-          const batchLayer = (d3.select(bigSel).select('g.true-batch') as any);
-
-          const dots = batchLayer
-            .selectAll('circle')
-            .data(realPoints);
-
-          dots.exit().remove();
-          dots
-            .enter()
-            .append('circle')
-            .attr('class', 'true-dot batch gan-lab')
-            .attr('r', 2)
-            .merge(dots as any)
-            .attr('cx', d => this.xPx(d[0], bigSize))
-            .attr('cy', d => this.yPx(d[1], bigSize));
-        }
-
-        // ---- render lines in the small NN panel
-        {
-          const nnSel = '#svg-discriminator-output';
-          const sizeNN = this.sizeFor(nnSel);
-          const nnSvg = d3.select(nnSel) as any;
-
-          const lSel = nnSvg.selectAll('.matching-line').data(pairs);
-          lSel.exit().remove();
-          const lEnter = lSel.enter()
-            .append('line')
-            .attr('class', 'matching-line gan-lab')
-            .attr('stroke-width', 1.0).attr('opacity', 0.7).attr('stroke', '#ff6961');
-
-          (lSel as any).merge(lEnter)
-            .attr('x1', (d: NNPair) => this.xPx(d.real[0], sizeNN))
-            .attr('y1', (d: NNPair) => this.yPx(d.real[1], sizeNN))
-            .attr('x2', (d: NNPair) => this.xPx(d.gen[0],  sizeNN))
-            .attr('y2', (d: NNPair) => this.yPx(d.gen[1],  sizeNN));
-        }
-
-        // ---- and also on the big layered plot (overlay inside big plot)
-        {
-          const bigSel = '#vis-discriminator-output';
-          const bigSize = this.sizeFor(bigSel);
-          const bigG = d3.select(bigSel) as any;
-
-          let overlay = bigG.select('g.matching-overlay') as any;
-          if (overlay.empty()) {
-            overlay = bigG.append('g').attr('class', 'matching-overlay gan-lab') as any;
-          }
-
-          const bigLines = overlay.selectAll('line.matching-line').data(pairs);
-          bigLines.exit().remove();
-          const bigEnter = bigLines.enter()
-            .append('line')
-            .attr('class', 'matching-line gan-lab')
-            .attr('stroke-width', 1.0)
-            .attr('opacity',  0.7)
-            .attr('stroke', '#ff6961')
-            .attr('pointer-events', 'none');
-
-          (bigLines as any).merge(bigEnter)
-            .attr('x1', (d: NNPair) => this.xPx(d.real[0], bigSize))
-            .attr('y1', (d: NNPair) => this.yPx(d.real[1], bigSize))
-            .attr('x2', (d: NNPair) => this.xPx(d.gen[0],  bigSize))
-            .attr('y2', (d: NNPair) => this.yPx(d.gen[1],  bigSize));
-
-          overlay.raise();
-        }
-
-        // -------- Small right panels (dots only) --------
-        {
-          const sSel = '#svg-generated-samples';
-          const sSize = this.sizeFor(sSel);
-          const s = d3.select(sSel)
-            .selectAll<SVGCircleElement, [number, number]>('.generated-dot')
-            .data(candidatePoints);
-
-          if (this.iterationCount === 1) {
-            s.enter().append('circle')
-              .attr('class', 'generated-dot gan-lab')
-              .attr('r', 1)
-              .merge(s as any)
-              .attr('cx', d => this.xPx(d[0], sSize))
-              .attr('cy', d => this.yPx(d[1], sSize));
-          } else {
-            s.enter().append('circle')
-              .attr('class', 'generated-dot gan-lab')
-              .attr('r', 1);
-            d3.select(sSel)
-              .selectAll('.generated-dot')
-              .data(candidatePoints)
-              .attr('cx', d => this.xPx(d[0], sSize))
-              .attr('cy', d => this.yPx(d[1], sSize));
-          }
-        }
-
-        // -------- Small right panel: matched (selected) generated samples --------
-        {
-          const pSel = '#svg-generated-prediction';
-          const pSize = this.sizeFor(pSel);
-          const selectedPoints: Array<[number, number]> = [];
-
-          for (let i = 0; i < idxArr.length; i++) {
-            const gi = idxArr[i] * 2;
-            selectedPoints.push([genArr[gi], genArr[gi + 1]]);
-          }
-
-          const s2 = d3.select(pSel)
-            .selectAll<SVGCircleElement, [number, number]>('.generated-dot')
-            .data(selectedPoints);
-
-          if (this.iterationCount === 1) {
-            s2.enter().append('circle')
-              .attr('class', 'generated-dot gan-lab')
-              .attr('r', 1)
-              .merge(s2 as any)
-              .attr('cx', d => this.xPx(d[0], pSize))
-              .attr('cy', d => this.yPx(d[1], pSize));
-          } else {
-            s2.enter().append('circle')
-              .attr('class', 'generated-dot gan-lab')
-              .attr('r', 1);
-            d3.select(pSel)
-              .selectAll('.generated-dot')
-              .data(selectedPoints)
-              .attr('cx', d => this.xPx(d[0], pSize))
-              .attr('cy', d => this.yPx(d[1], pSize));
-          }
-        }
-
-        // -------- IMLE gradient arrows (gen → real) in gradient panels --------
-        const gradTargets = ['#vis-generator-gradients', '#svg-generator-gradients'];
-
-        gradTargets.forEach((sel, idx) => {
-          const plotSizePx = idx === 0 ? this.plotSizePx : this.smallPlotSizePx;
-          const arrowWidth = idx === 0 ? 0.004 : 0.01;
-          const lenScale   = idx === 0 ? 5 : 6.0;
-
-          // ensure a <g> layer
-          let layer = d3.select(sel).select('g.grad-layer');
-          if (layer.empty()) {
-            layer = d3.select(sel)
-              .append('g')
-              .attr('class', 'grad-layer gan-lab');
-          }
-
-          // KEY BY k (d[4])
-          const join = layer
-            .selectAll('polygon.grad-arrow')
-            .data(avgGradData as any, (d: any) => (d ? d[4] : undefined));
-
-          join.exit().remove();
-
-          const enter = join.enter()
-            .append('polygon')
-            .attr('class', 'grad-arrow gradient-generated gan-lab')
-            // bright cyan fill
-            .style('fill', 'rgba(120, 210, 220, 0.9)')
-            // darker outline for contrast
-            .style('stroke', 'rgba(58, 169, 210, 0.95)')
-            .style('stroke-width', Math.max(1.0, plotSizePx * 0.002))
-            .style('opacity', 0);
-
-          const merged = enter.merge(join);
-          merged
-            .style('opacity', 1)
-            .attr('points', (d: number[]) =>
-              this.createArrowPolygonScaled(d, plotSizePx, arrowWidth, lenScale)
-            );
-        });
-      });
-    }
-
-    if (this.slowMode) {
-      await this.highlightIMLEStep(['component-g-loss', 'component-generated-prediction'], 'tooltip-imle-loss');
-      document.getElementById('component-g-loss')!.classList.add('activated');
-      for (let i = 0; i < this.gFlowElements.length; ++i) {
-        this.gFlowElements[i].classList.add('g-activated');
-      }
-    }
-
-    // --------------------------------------------
-    // Train generator with IMLE (matched-noise)
-    // --------------------------------------------
-    const kGSteps = this.kGSteps;
-    let gCostVal: number | null = null;
-
+  // Precompute manifold grids
+  // ------------------------------------------------------------------
+  let gridData: ManifoldCell[] = [];
+  let manifoldPoints: Float32Array[] = [];
+  if (shouldRender) {
     tf.tidy(() => {
-      for (let j = 0; j < kGSteps; j++) {
-        const gCost = this.model.gOptimizer.minimize(() => {
-          // Gather along axis 0: latentPool shape [N, Z], nnIdx shape [B]
-          const matchedNoise = tf.gather(latentPool as tf.Tensor2D, nnIdx as tf.Tensor1D, 0);
-          return this.model.imleLoss(realBatch as tf.Tensor2D, matchedNoise as tf.Tensor2D);
-        }, true, this.model.gVariables);
-        if ((!keepIterating || this.iterationCount === 1 || this.slowMode ||
-            this.iterationCount % VIS_INTERVAL === 0) && j + 1 === kGSteps) {
-          gCostVal = (gCost as tf.Scalar).dataSync()[0];
+      if (this.noiseSize <= 2) {
+        const tmpManifold: Float32Array[] = [];
+        const numBatches = Math.ceil(Math.pow(NUM_MANIFOLD_CELLS + 1, this.noiseSize) / BATCH_SIZE);
+        const remainingDummy =
+          BATCH_SIZE * numBatches -
+          Math.pow(NUM_MANIFOLD_CELLS + 1, this.noiseSize) * this.noiseSize;
+
+        for (let k = 0; k < numBatches; ++k) {
+          const noiseBatch = this.uniformNoiseProvider.getNextCopy() as tf.Tensor2D;
+          const result = this.model.generator(noiseBatch);
+          const maniResult = result.dataSync() as Float32Array;
+          for (let i = 0; i < (k + 1 < numBatches ? BATCH_SIZE
+                                  : BATCH_SIZE - remainingDummy); ++i) {
+            tmpManifold.push(maniResult.slice(i * 2, i * 2 + 2));
+          }
         }
+
+        manifoldPoints = tmpManifold;
+
+        gridData = (this.noiseSize === 1)
+          ? [{ points: tmpManifold }]
+          : this.createGridCellsFromManifoldData(tmpManifold);
       }
     });
+  }
 
-    if (!keepIterating || this.iterationCount === 1 || this.slowMode ||
-        this.iterationCount % VIS_INTERVAL === 0) {
-      // Update generator loss.
-      if (gCostVal != null) {
-        document.getElementById('g-loss-value')!.innerText = gCostVal.toFixed(3);
-        document.getElementById('g-loss-bar')!.title = gCostVal.toFixed(3);
-        const scaled = Math.log10(gCostVal + 1e-6);
-        const normalized = Math.min(Math.max((scaled + 4) / 4, 0), 1);
-        const barWidth = 1 + normalized * (100 - 5);
-        document.getElementById('g-loss-bar')!.style.width = `${barWidth}px`;
-      }
+  // ============================================================
+  // SLOW MODE STEP 1: Generator maps noise → samples
+  // ============================================================
+  if (this.slowMode) {
+    const container = document.getElementById('model-visualization-container')!;
+    if (!container.classList.contains('any-highlighted')) {
+      container.classList.add('any-highlighted');
+    }
 
-      // Charts
-      if (this.iterationCount === 1) {
-        const chartContainer = document.getElementById('chart-container') as HTMLElement;
-        chartContainer.style.visibility = 'visible';
-      }
+    await this.sleep(SLOW_INTERVAL_MS);
+    await this.highlightIMLEStep(
+      ['component-noise', 'component-generator', 'component-generated-samples'],
+      'tooltip-generated-samples'
+    );
+  }
 
-      this.updateChartData(this.costChartData, this.iterationCount, [gCostVal]);
-      this.costChart.update();
-
-      if (this.slowMode) {
-        await this.highlightIMLEStep(['component-generator-gradients'], 'tooltip-g-gradients');
-        await this.highlightIMLEStep(['component-generator'], 'tooltip-update-generator');
-      }
-
-      // Manifold (noise→output) for 1D/2D latents
-      tf.tidy(() => {
-        if (this.noiseSize <= 2) {
-          const manifoldData: Float32Array[] = [];
-          const numBatches = Math.ceil(Math.pow(NUM_MANIFOLD_CELLS + 1, this.noiseSize) / BATCH_SIZE);
-          const remainingDummy = BATCH_SIZE * numBatches - Math.pow(
-            NUM_MANIFOLD_CELLS + 1, this.noiseSize) * this.noiseSize;
-          for (let k = 0; k < numBatches; ++k) {
-            const noiseBatch = this.uniformNoiseProvider.getNextCopy() as tf.Tensor2D;
-            const result = this.model.generator(noiseBatch);
-            const maniResult = result.dataSync() as Float32Array;
-            for (let i = 0; i < (k + 1 < numBatches ? BATCH_SIZE : BATCH_SIZE - remainingDummy); ++i) {
-              manifoldData.push(maniResult.slice(i * 2, i * 2 + 2));
-            }
-          }
-
-          const gridData: ManifoldCell[] = this.noiseSize === 1
-            ? [{ points: manifoldData }]
-            : this.createGridCellsFromManifoldData(manifoldData);
-
-          const gManifoldElementList = ['#vis-manifold', '#svg-generator-manifold'];
-          gManifoldElementList.forEach((sel) => {
-            const size = this.sizeFor(sel);
-            const manifoldCell = line()
-              .x((d: number[]) => this.xPx(d[0], size))
-              .y((d: number[]) => this.yPx(d[1], size));
-
-            if (this.iterationCount === 1) {
-              d3.select(sel)
-                .selectAll('.grids')
-                .data(gridData)
-                .enter()
-                .append('g')
-                .attr('class', 'grids gan-lab')
-                .append('path')
-                .attr('class', 'manifold-cell gan-lab')
-                .style('fill', () => this.noiseSize === 2 ? '#0d8da7ff' : 'none');
-            }
-            d3.select(sel)
-              .selectAll('.grids')
-              .data(gridData)
-              .select('.manifold-cell')
-              .attr('d', (d: ManifoldCell) => manifoldCell(
-                d.points.map(point => [point[0], point[1]] as [number, number])
-              ))
-              .style('fill-opacity', (d: ManifoldCell, i: number) => {
-                return this.selectedNoiseType === '2D Gaussian'
-                  ? Math.min(0.1 + this.densitiesForGaussian[i] /
-                    (d.area! * Math.pow(NUM_MANIFOLD_CELLS, 2)) * 0.2, 0.9)
-                  : (this.noiseSize === 2 ? Math.max(
-                    0.9 - d.area! * 0.4 * Math.pow(NUM_MANIFOLD_CELLS, 2), 0.1)
-                    : 'none');
-              });
-
-            if (this.noiseSize === 1) {
-              const manifoldDots =
-                d3.select(sel)
-                  .selectAll('.uniform-generated-dot')
-                  .data(manifoldData);
-              if (this.iterationCount === 1) {
-                manifoldDots.enter()
-                  .append('circle')
-                  .attr('class', 'uniform-generated-dot gan-lab')
-                  .attr('r', 1);
-              }
-              manifoldDots
-                .attr('cx', (d: Float32Array) => this.xPx(d[0], size))
-                .attr('cy', (d: Float32Array) => this.yPx(d[1], size));
-            }
-          });
-        }
-      });
-
-      // Update big generated plot post-update (current GEN mini-batch)
-      const gData: Array<[number, number]> = [];
-      tf.tidy(() => {
-        const gResultData = genPool.dataSync() as Float32Array;
-        for (let i = 0; i < gResultData.length / 2; ++i) {
-          gData.push([gResultData[i * 2], gResultData[i * 2 + 1]]);
-        }
-      });
-
+  if (shouldRender) {
+    // main generated dots (#vis-generated-samples)
     {
-      const sel = '#vis-generated-samples';
+      const sel  = '#vis-generated-samples';
       const size = this.sizeFor(sel);
-      const batchLayer = d3.select(sel).select('g.gen-batch');
+      const dur  = (this.fixedLatents && this.iterationCount > 1)
+        ? Math.floor(SLOW_INTERVAL_MS / 600)
+        : 0;
 
-      const dots = batchLayer
-        .selectAll('circle')
-        .data(gData);
+      let layer = d3.select(sel).select('g.gen-batch');
+      if (layer.empty()) {
+        layer = d3.select(sel).append('g').attr('class', 'gen-batch gan-lab');
+      }
 
-      dots.exit().remove();
+      const join = layer
+        .selectAll<SVGCircleElement, [number, number]>('circle.generated-dot.batch')
+        .data(gDataCurrent, (_d, i) => i as any);
 
-      const dotsEnter = dots
-        .enter()
+      join.exit().remove();
+
+      const r = (size === this.plotSizePx) ? 2 : 1;
+      const enter = join.enter()
         .append('circle')
         .attr('class', 'generated-dot batch gan-lab')
-        .attr('r', (size === this.plotSizePx) ? 2 : 1);
+        .attr('r', r)
+        .attr('cx', (_d, i) => {
+          const prev = (this as any).prevGData as Array<[number, number]> | undefined;
+          const start = (dur > 0 && prev && prev[i]) ? prev[i] : gDataCurrent[i];
+          return this.xPx(start[0], size);
+        })
+        .attr('cy', (_d, i) => {
+          const prev = (this as any).prevGData as Array<[number, number]> | undefined;
+          const start = (dur > 0 && prev && prev[i]) ? prev[i] : gDataCurrent[i];
+          return this.yPx(start[1], size);
+        });
 
-      // Ensure title elements exist for new circles
-      dotsEnter.append('title');
+      enter.append('title');
 
-      // Use d3Transition.transition() to get a proper transition object
       d3Transition.transition()
         .select(sel)
-        .selectAll('g.gen-batch circle')
+        .selectAll<SVGCircleElement, [number, number]>('g.gen-batch circle.generated-dot.batch')
         .selection()
-        .data(gData)
-        .transition().duration(this.slowMode ? SLOW_INTERVAL_MS : 0)
-        .attr('cx', (d: number[]) => this.xPx(d[0], size))
-        .attr('cy', (d: number[]) => this.yPx(d[1], size));
+        .data(gDataCurrent, (_d, i) => i as any)
+        .transition()
+        .duration(dur)
+        .attr('cx', (d) => this.xPx(d[0], size))
+        .attr('cy', (d) => this.yPx(d[1], size));
 
-      // Update titles
       d3.select(sel)
-        .selectAll('g.gen-batch circle')
+        .selectAll<SVGCircleElement, [number, number]>('g.gen-batch circle.generated-dot.batch')
         .select('title')
-        .text((d: number[], i: number) =>
-          `${Number(d[0]).toFixed(2)},${Number(d[1]).toFixed(2)} (${i})`);
+        .text((d, i) => `${Number(d[0]).toFixed(2)},${Number(d[1]).toFixed(2)} (${i})`);
+
+      (this as any).prevGData = gDataCurrent.slice();
     }
 
-      // Simple grid-based evaluation
-      this.evaluator.updateGridsForGenerated(gData);
+    // real batch overlay in '#vis-true-samples-batch'
+    {
+      const bigSel = '#vis-true-samples-batch';
+      const size   = this.sizeFor('#vis-generated-samples');
+      const dur    = (this.fixedLatents && this.iterationCount > 1)
+        ? Math.floor(SLOW_INTERVAL_MS / 600)
+        : 0;
+
+      let layer = d3.select(bigSel).select('g.true-batch');
+      if (layer.empty()) {
+        layer = d3.select(bigSel).append('g').attr('class', 'true-batch gan-lab');
+      }
+
+      const join = layer
+        .selectAll<SVGCircleElement, [number, number]>('circle.true-dot.batch')
+        .data(realPoints, (_d, i) => i as any);
+
+      join.exit().remove();
+      join.enter().append('circle')
+        .attr('class', 'true-dot batch gan-lab')
+        .attr('r', 2);
+
+      if (dur > 0) {
+        d3Transition.transition()
+          .select(bigSel)
+          .selectAll('g.true-batch circle.true-dot.batch')
+          .selection()
+          .data(realPoints, (_d, i) => i as any)
+          .transition()
+          .duration(dur)
+          .attr('cx', d => this.xPx(d[0], size))
+          .attr('cy', d => this.yPx(d[1], size));
+      } else {
+        d3.select(bigSel)
+          .selectAll<SVGCircleElement, [number, number]>('g.true-batch circle.true-dot.batch')
+          .data(realPoints, (_d, i) => i as any)
+          .attr('cx', d => this.xPx(d[0], size))
+          .attr('cy', d => this.yPx(d[1], size));
+      }
+    }
+
+    // right panel "#svg-generated-samples" (all generated)
+    {
+      const sSel  = '#svg-generated-samples';
+      const sSize = this.sizeFor(sSel);
+
+      const s = d3.select(sSel)
+        .selectAll<SVGCircleElement, [number, number]>('.generated-dot')
+        .data(candidatePoints);
+      s.enter().append('circle')
+        .attr('class', 'generated-dot gan-lab')
+        .attr('r', 1);
+      d3.select(sSel)
+        .selectAll('.generated-dot')
+        .data(candidatePoints)
+        .attr('cx', d => this.xPx(d[0], sSize))
+        .attr('cy', d => this.yPx(d[1], sSize));
+    }
+
+    // manifold panels '#vis-manifold' & '#svg-generator-manifold'
+    tf.tidy(() => {
+      if (this.noiseSize <= 2) {
+        const gManifoldElementList = ['#vis-manifold', '#svg-generator-manifold'];
+        gManifoldElementList.forEach((sel) => {
+          const size = this.sizeFor(sel);
+          const manifoldCell = line()
+            .x((d: number[]) => this.xPx(d[0], size))
+            .y((d: number[]) => this.yPx(d[1], size));
+
+          if (this.iterationCount === 1) {
+            d3.select(sel).selectAll('.grids')
+              .data(gridData).enter().append('g')
+              .attr('class', 'grids gan-lab')
+              .append('path')
+              .attr('class', 'manifold-cell gan-lab')
+              .style('fill', () => this.noiseSize === 2 ? '#0d8da7ff' : 'none');
+          }
+
+          d3.select(sel).selectAll('.grids')
+            .data(gridData)
+            .select('.manifold-cell')
+            .attr('d', (d: ManifoldCell) => manifoldCell(
+              d.points.map(p => [p[0], p[1]] as [number, number])
+            ))
+            .style('fill-opacity', (d: ManifoldCell, i: number) => {
+              return this.selectedNoiseType === '2D Gaussian'
+                ? Math.min(
+                    0.1 +
+                      (this.densitiesForGaussian[i] /
+                        (d.area! * Math.pow(NUM_MANIFOLD_CELLS, 2))) *
+                      0.2,
+                    0.9
+                  )
+                : (this.noiseSize === 2
+                    ? Math.max(
+                        0.9 -
+                          d.area! * 0.4 *
+                          Math.pow(NUM_MANIFOLD_CELLS, 2),
+                        0.1
+                      )
+                    : 'none');
+            });
+
+          if (this.noiseSize === 1) {
+            const manifoldDots = d3.select(sel)
+              .selectAll('.uniform-generated-dot')
+              .data(manifoldPoints);
+            if (this.iterationCount === 1) {
+              manifoldDots.enter()
+                .append('circle')
+                .attr('class', 'uniform-generated-dot gan-lab')
+                .attr('r', 1);
+            }
+            manifoldDots
+              .attr('cx', (d: Float32Array) => this.xPx(d[0], size))
+              .attr('cy', (d: Float32Array) => this.yPx(d[1], size));
+          }
+        });
+      }
+    });
+  }
+
+  // ============================================================
+  // SLOW MODE STEP 2: Match data → nearest generated
+  // ============================================================
+  if (this.slowMode) {
+    await this.sleep(SLOW_INTERVAL_MS);
+    await this.highlightIMLEStep(
+      ['component-true-samples', 'component-generated-samples', 'component-discriminator'],
+      'tooltip-imle-matching'
+    );
+  }
+
+  if (shouldRender) {
+    // NN lines small & big
+    {
+      // small panel
+      const nnSel  = '#svg-discriminator-output';
+      const sizeNN = this.sizeFor(nnSel);
+      const nnSvg  = d3.select(nnSel) as any;
+
+      const lSel = nnSvg.selectAll('.matching-line').data(pairs);
+      lSel.exit().remove();
+      const lEnter = lSel.enter().append('line')
+        .attr('class', 'matching-line gan-lab')
+        .attr('stroke-width', 1)
+        .attr('opacity', 0.7)
+        .attr('stroke', '#ff6961');
+
+      (lSel as any).merge(lEnter)
+        .attr('x1', d => this.xPx(d.real[0], sizeNN))
+        .attr('y1', d => this.yPx(d.real[1], sizeNN))
+        .attr('x2', d => this.xPx(d.gen[0],  sizeNN))
+        .attr('y2', d => this.yPx(d.gen[1],  sizeNN));
+
+      // big overlay
+      const bigSel  = '#vis-discriminator-output';
+      const bigSize = this.sizeFor(bigSel);
+      let overlay = (d3.select(bigSel) as any).select('g.matching-overlay');
+      if (overlay.empty()) {
+        overlay = (d3.select(bigSel) as any)
+          .append('g')
+          .attr('class', 'matching-overlay gan-lab');
+      }
+
+      const bigLines = overlay.selectAll('line.matching-line').data(pairs);
+      bigLines.exit().remove();
+      const bigEnter = bigLines.enter().append('line')
+        .attr('class', 'matching-line gan-lab')
+        .attr('stroke-width', 1)
+        .attr('opacity', 0.7)
+        .attr('stroke', '#ff6961')
+        .attr('pointer-events', 'none');
+
+      (bigLines as any).merge(bigEnter)
+        .attr('x1', d => this.xPx(d.real[0], bigSize))
+        .attr('y1', d => this.yPx(d.real[1], bigSize))
+        .attr('x2', d => this.xPx(d.gen[0],  bigSize))
+        .attr('y2', d => this.yPx(d.gen[1],  bigSize));
+
+      overlay.raise();
+    }
+
+    // matched subset panel "#svg-generated-prediction"
+    {
+      const pSel  = '#svg-generated-prediction';
+      const pSize = this.sizeFor(pSel);
+
+      const s2 = d3.select(pSel)
+        .selectAll<SVGCircleElement, [number, number]>('.generated-dot')
+        .data(selectedPoints);
+      s2.enter().append('circle')
+        .attr('class', 'generated-dot gan-lab')
+        .attr('r', 1);
+      d3.select(pSel)
+        .selectAll('.generated-dot')
+        .data(selectedPoints)
+        .attr('cx', d => this.xPx(d[0], pSize))
+        .attr('cy', d => this.yPx(d[1], pSize));
+    }
+  }
+
+  // ============================================================
+  // SLOW MODE STEP 3: Compute L2 loss
+  // ============================================================
+  if (this.slowMode) {
+    await this.sleep(SLOW_INTERVAL_MS);
+    await this.highlightIMLEStep(
+      ['component-generated-prediction', 'component-g-loss'],
+      'tooltip-imle-loss'
+    );
+    document.getElementById('component-g-loss')!.classList.add('activated');
+    for (let i = 0; i < this.gFlowElements.length; ++i) {
+      this.gFlowElements[i].classList.add('g-activated');
+    }
+  }
+
+  {
+    tf.tidy(() => {
+      const matchedNoise = tf.gather(
+        latentPoolTrain as tf.Tensor2D,
+        nnIdxTrain as tf.Tensor1D,
+        0
+      );
+      const gCost = this.model.imleLoss(
+        realBatch as tf.Tensor2D,
+        matchedNoise as tf.Tensor2D
+      ) as tf.Scalar;
+      gCostVal = gCost.dataSync()[0];
+    });
+  }
+
+  if (shouldRender) {
+    if (gCostVal != null) {
+      document.getElementById('g-loss-value')!.innerText = gCostVal.toFixed(3);
+      document.getElementById('g-loss-bar')!.title       = gCostVal.toFixed(3);
+
+      const scaled = Math.log10(gCostVal + 1e-6);
+      const normalized = Math.min(Math.max((scaled + 4) / 4, 0), 1);
+      const barWidth = 1 + normalized * (100 - 5);
+      document.getElementById('g-loss-bar')!.style.width = `${barWidth}px`;
+    }
+
+    if (this.iterationCount === 1) {
+      (document.getElementById('chart-container') as HTMLElement).style.visibility = 'visible';
+    }
+
+    this.updateChartData(this.costChartData, this.iterationCount, [gCostVal]);
+    this.costChart.update();
+
+    // evaluation scores from current gen
+    if (gDataCurrent.length) {
+      this.evaluator.updateGridsForGenerated(gDataCurrent);
       this.updateChartData(this.evalChartData, this.iterationCount, [
         this.evaluator.getKLDivergenceScore(),
         this.evaluator.getJSDivergenceScore()
       ]);
       this.evalChart.update();
-
-      if (this.slowMode) {
-        await this.sleep(SLOW_INTERVAL_MS);
-        this.dehighlightStep();
-
-        const container = document.getElementById('model-visualization-container')!;
-        if (container.classList.contains('any-highlighted')) {
-          container.classList.remove('any-highlighted');
-        }
-        document.getElementById('component-g-loss')!.classList.remove('activated');
-        for (let i = 0; i < this.gFlowElements.length; ++i) {
-          this.gFlowElements[i].classList.remove('g-activated');
-        }
-      }
     }
-    nnIdx.dispose();
-    genPool.dispose();
-    latentPool.dispose();
-    realBatch.dispose();
-
-    if (this.iterationCount >= 999999) {
-      this.isPlaying = false;
-    }
-
-    requestAnimationFrame(() => this.iterateTraining(true));
   }
 
-  private createArrowPolygonScaled(d: number[], plotSizePx: number, arrowWidth: number, lenScale: number) {
+  // ============================================================
+  // SLOW MODE STEP 4: Compute generator gradients
+  // ============================================================
+  if (this.slowMode) {
+    await this.sleep(SLOW_INTERVAL_MS);
+    await this.highlightIMLEStep(
+      ['component-generator-gradients'],
+      'tooltip-g-gradients'
+    );
+  }
+
+  if (shouldRender) {
+    const gradTargets = ['#vis-generator-gradients', '#svg-generator-gradients'];
+    gradTargets.forEach((sel, idx) => {
+      const plotSizePx = idx === 0 ? this.plotSizePx : this.smallPlotSizePx;
+      const arrowWidth = idx === 0 ? 0.004 : 0.01;
+      const lenScale   = idx === 0 ? 5 : 6.0;
+
+      let layer = d3.select(sel).select('g.grad-layer');
+      if (layer.empty()) {
+        layer = d3.select(sel).append('g').attr('class', 'grad-layer gan-lab');
+      }
+
+      const join = layer.selectAll<SVGPolygonElement, any>('polygon.grad-arrow')
+        .data(avgGradData as any, (d: any) => (d ? d[4] : undefined));
+
+      join.exit().remove();
+
+      const enter = join.enter()
+        .append('polygon')
+        .attr('class', 'grad-arrow gradient-generated gan-lab')
+        .style('fill', 'rgba(120, 210, 220, 0.9)')
+        .style('stroke', 'rgba(58, 169, 210, 0.95)')
+        .style('stroke-width', Math.max(1.0, plotSizePx * 0.002))
+        .style('opacity', 0);
+
+      enter.merge(join as any)
+        .style('opacity', 1)
+        .attr('points', (d: number[]) =>
+          this.createArrowPolygonScaled(d, plotSizePx, arrowWidth, lenScale)
+        );
+    });
+  }
+
+  // ============================================================
+  // SLOW MODE STEP 5: Update generator weights
+  // ============================================================
+  if (this.slowMode) {
+    await this.sleep(SLOW_INTERVAL_MS);
+    await this.highlightIMLEStep(
+      ['component-generator'],
+      'tooltip-update-generator'
+    );
+  }
+
+  tf.tidy(() => {
+    for (let j = 0; j < this.kGSteps; j++) {
+      this.model.gOptimizer.minimize(() => {
+        const matchedNoise = tf.gather(
+          latentPoolTrain as tf.Tensor2D,
+          nnIdxTrain as tf.Tensor1D,
+          0
+        );
+        return this.model.imleLoss(
+          realBatch as tf.Tensor2D,
+          matchedNoise as tf.Tensor2D
+        );
+      }, true, this.model.gVariables);
+    }
+  });
+
+  // cleanup UI highlight if slowMode
+  if (this.slowMode) {
+    // await this.sleep(SLOW_INTERVAL_MS);
+    this.dehighlightStep();
+
+    const container = document.getElementById('model-visualization-container')!;
+    if (container.classList.contains('any-highlighted')) {
+      container.classList.remove('any-highlighted');
+    }
+    document.getElementById('component-g-loss')!.classList.remove('activated');
+    for (let i = 0; i < this.gFlowElements.length; ++i) {
+      this.gFlowElements[i].classList.remove('g-activated');
+    }
+  }
+
+  // ============================================================
+  // Dispose tensors
+  // ============================================================
+  nnIdxTrain.dispose();
+  genPoolTrain.dispose();
+  latentPoolTrain.dispose();
+
+  if (useFixed) {
+    nnIdxViz.dispose();
+    genPoolViz.dispose();
+    // latentPoolViz is fixedLatentPool; don't dispose
+  } else {
+    // latentPoolViz === latentPoolTrain (disposed),
+    // genPoolViz === genPoolTrain (disposed),
+    // nnIdxViz === nnIdxTrain (disposed).
+  }
+
+  realBatch.dispose();
+
+  if (this.iterationCount >= 999999) this.isPlaying = false;
+
+  requestAnimationFrame(() => this.iterateTraining(true));
+}
+
+
+
+  private createArrowPolygonScaled(
+    d: number[],
+    plotSizePx: number,
+    arrowWidth: number,
+    lenScale: number
+  ) {
     const eps = 1e-12;
     const gx = d[2], gy = d[3];
     const mag = Math.sqrt(gx * gx + gy * gy + eps);
+
+    // --- Smooth log scaling tuned for 0.01–0.3
+    const minMag  = 0.005;
+    const maxMag  = 0.3;
+    const logBase = 2;  // smaller base → softer curve than log10
+    const logMin  = Math.log(minMag) / Math.log(logBase);
+    const logMax  = Math.log(maxMag) / Math.log(logBase);
+
+    let logv = Math.log(mag) / Math.log(logBase);
+    logv = Math.max(logMin, Math.min(logMax, logv));  // clamp
+    const t = (logv - logMin) / (logMax - logMin);    // normalize to [0,1]
+
+    // --- Map to arrow-length range
+    const minFrac = 0.06;   // for mag = 0.01
+    const maxFrac = 0.22;   // for mag = 0.3
+    const scale = minFrac + (maxFrac - minFrac) * t;
+    const len   = GRAD_ARROW_UNIT_LEN * lenScale * scale;
+
+    // normalize for direction
     const xNorm = gx / mag;
     const yNorm = gy / mag;
 
-    // ---- Compression: s = (mag / (mag + k))^gamma in [0,1)
-    // k: where it’s ~50% (raise k → more compression overall)
-    // gamma < 1 boosts small values more; >1 dampens them
-    const k     = 0.25;   // try 0.25–0.6 depending on your gradient scale
-    const gamma = 0.55;   // 0.45–0.7: lift small, compress big
-    const s = Math.pow(mag / (mag + k), gamma);
-
-    // Map to [floor, cap] so arrows never vanish/never explode
-    const floor = 0.80;   // raise to make very small arrows bigger
-    const cap   = 0.22;   // lower to shrink very large arrows more
-    const scale = floor + (cap - floor) * s;
-
-    const len = GRAD_ARROW_UNIT_LEN * lenScale * scale;
-
+    // --- Polygon coordinates
     return `${d[0] * plotSizePx},
       ${(1.0 - d[1]) * plotSizePx}
       ${(d[0] - yNorm * (-1) * arrowWidth) * plotSizePx},
       ${(1.0 - (d[1] - xNorm * arrowWidth)) * plotSizePx}
-      ${(d[0] + d[2] * len) * plotSizePx},
-      ${(1.0 - (d[1] + d[3] * len)) * plotSizePx}
+      ${(d[0] + xNorm * len) * plotSizePx},
+      ${(1.0 - (d[1] + yNorm * len)) * plotSizePx}
       ${(d[0] - yNorm * arrowWidth) * plotSizePx},
       ${(1.0 - (d[1] - xNorm * (-1) * arrowWidth)) * plotSizePx}`;
   }
+
 
   private createGridCellsFromManifoldData(manifoldData: Float32Array[]) {
     const gridData: ManifoldCell[] = [];

@@ -93,7 +93,17 @@
       --paper-checkbox-size: 11px;
       --paper-checkbox-unchecked-color: #888;
     }
-    
+
+    #visualization-container paper-checkbox {
+      --paper-checkbox-size: 10px;           /* smaller box */
+      --paper-checkbox-checked-color: #bbb;  /* grey */
+      --paper-checkbox-unchecked-color: #bbb;
+      --paper-checkbox-label-color: #444;
+      --paper-checkbox-label-spacing: 4px;
+      font-size: 12px;                       /* label text size */
+      margin-bottom: 4px;
+    }
+
     #timeline-controls {
       align-items: center;
       display: flex;
@@ -186,7 +196,7 @@
       align-items: center;
       color: #555;
       display: flex;
-      margin-bottom: 5px;
+      margin-bottom: -4px;
       font-size: 15px;
       height: 32px;
       text-transform: uppercase;
@@ -1122,7 +1132,9 @@
 multiple layers. The layers can be turned on or off using checkboxes.">
             Layered Distributions
           </div>
-
+          <paper-checkbox id="toggle-fixed-latents-pc" checked>
+            Fixed latents (visualization)
+          </paper-checkbox>
           <div id="vis-content-container">
             <svg id="vis-svg" width="400" height="400">
               <g id="vis-area">
