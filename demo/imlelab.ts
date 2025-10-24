@@ -104,7 +104,7 @@ class GANLab extends GANLabPolymer {
   private evalChart: any;
 
   // configurable NN metric; UI toggle can be added later
-  private distanceType: 'L1' | 'L2' = 'L2';
+  private distanceType: 'L1' | 'L2' | 'Barrier' = 'L2';
 
   // ───────────────────────────────────────────────────────────────────────────
   // Uniform scaling helpers
@@ -224,12 +224,14 @@ class GANLab extends GANLabPolymer {
       });
 
     // sample factor
-    this.sampleFactorTypeOptions = [1, 2, 4, 8];
+    this.sampleFactorTypeOptions = [1, 2, 4];
     this.sampleFactor = 1;
     this.querySelector('#sample-factor-type-dropdown')!.addEventListener(
       // tslint:disable-next-line:no-any
       'iron-activate', (event: any) => {
         this.sampleFactor = event.detail.selected;
+        this.disabledPretrainedMode();
+        this.createExperiment();
       });
 
     this.epsilonTypeOptions = [0, 0.0001, 0.0005, 0.001];
