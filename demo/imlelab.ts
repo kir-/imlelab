@@ -243,7 +243,7 @@ class GANLab extends GANLabPolymer {
       });
 
     this.learningRateOptions = [0.001, 0.003, 0.01, 0.03, 0.1];
-    this.gLearningRate = 0.03;
+    this.gLearningRate = 0.01;
     this.querySelector('#g-learning-rate-dropdown')!.addEventListener(
       // tslint:disable-next-line:no-any
       'iron-activate', (event: any) => {
@@ -252,7 +252,7 @@ class GANLab extends GANLabPolymer {
       });
 
     this.optimizerTypeOptions = ['SGD', 'Adam', 'Adagrad', 'RMSProp'];
-    this.gOptimizerType = 'SGD';
+    this.gOptimizerType = 'Adam';
     this.querySelector('#g-optimizer-type-dropdown')!.addEventListener(
       // tslint:disable-next-line:no-any
       'iron-activate', (event: any) => {
